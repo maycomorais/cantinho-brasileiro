@@ -1,9 +1,7 @@
 // supabaseClient.js — Cantinho Brasileiro
 
-// ⚠️  SUBSTITUA pelas credenciais do seu novo projeto Supabase
-// Acesse: supabase.com → seu projeto → Settings → API
-const _SUPABASE_URL = 'COLE_AQUI_A_URL_DO_PROJETO';
-const _SUPABASE_KEY = 'COLE_AQUI_A_ANON_KEY';
+const _SUPABASE_URL = 'https://osddyplmzqoethbqbthe.supabase.co';
+const _SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zZGR5cGxtenFvZXRoYnFidGhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MzQ5NzYsImV4cCI6MjA4NzIxMDk3Nn0.cj1hgzwg3KIcBQnmxCgsvfhvIcl3x6WsUxH3QdsOJWY';
 
 if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
     console.error("ERRO CRÍTICO: A biblioteca do Supabase não carregou. Verifique o HTML.");
