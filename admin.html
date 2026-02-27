@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Painel Administrativo - Cantinho Brasileiro</title>
+    <title>Cantinho Brasileiro — Admin</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link
@@ -166,14 +166,38 @@
       </div>
 
       <div id="pedidos" class="tab-content">
-        <div class="section-topbar">
-          <h2 class="section-title">Pedidos</h2>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button class="btn btn-relatorio" onclick="abrirRelatorio()" title="Relatório Detalhado">
-              <i class="fas fa-clipboard-list"></i><span class="mobile-hide"> Relatório</span>
+        <!-- CABEÇALHO PEDIDOS -->
+        <div class="pedidos-topbar">
+          <!-- Linha 1: Título + badge delivery + refresh -->
+          <div class="pedidos-topbar-row1">
+            <div class="pedidos-topbar-left">
+              <h2 class="section-title">Pedidos</h2>
+              <span id="badge-delivery-status" class="delivery-badge delivery-open"
+                onclick="carregarStatusDelivery()" title="Clique para atualizar">
+                🟢 Aberto
+              </span>
+              <span id="badge-horario-extra" class="delivery-badge badge-extra" style="display:none"></span>
+            </div>
+            <div class="pedidos-topbar-right">
+              <button class="topbar-btn btn-refresh-icon" onclick="carregarPedidos()" title="Atualizar">
+                <i class="fas fa-sync-alt"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Linha 2: Ações de controle do delivery -->
+          <div class="pedidos-topbar-row2">
+            <button class="topbar-btn btn-horario" onclick="abrirModalEstenderHorario()" title="Estender horário">
+              <i class="fas fa-clock"></i> <span>+Horário</span>
             </button>
-            <button class="btn btn-primary btn-icon btn-refresh" onclick="carregarPedidos()" title="Atualizar">
-              <i class="fas fa-sync-alt"></i>
+            <button class="topbar-btn btn-encerrar" onclick="avisarEncerramentoDelivery()" title="Encerrar delivery">
+              <i class="fas fa-ban"></i> <span>Encerrar</span>
+            </button>
+            <button class="topbar-btn btn-reabrir" onclick="reabrirDelivery()" title="Reabrir delivery">
+              <i class="fas fa-check"></i> <span>Reabrir</span>
+            </button>
+            <button class="topbar-btn btn-relatorio" onclick="abrirRelatorio()" title="Relatório">
+              <i class="fas fa-clipboard-list"></i> <span>Relatório</span>
             </button>
           </div>
         </div>
@@ -216,68 +240,129 @@
       </div>
 
       <div id="pdv" class="tab-content">
-        <h2 class="section-title">🏪 Venda Balcão (PDV)</h2>
+        <!-- PDV Header -->
+        <div class="pdv-header-bar">
+          <h2 class="section-title" style="margin:0">🏪 Venda Balcão (PDV)</h2>
+          <div class="pdv-view-btns">
+            <button id="pdv-view-btn-venda" class="pdv-view-btn active" onclick="pdvMudarView('venda')">
+              <i class="fas fa-cash-register"></i> <span>Venda</span>
+            </button>
+            <button id="pdv-view-btn-mesas" class="pdv-view-btn" onclick="pdvMudarView('mesas')">
+              <i class="fas fa-clipboard-list"></i> <span>Mesas</span>
+              <span class="pdv-badge-mesas" id="pdv-badge-mesas" style="display:none">0</span>
+            </button>
+          </div>
+        </div>
 
+        <!-- MOBILE TABS (só aparece em mobile) -->
         <div class="pdv-tabs" id="pdv-tabs" style="display:none">
-          <button class="pdv-tab-btn active" onclick="pdvMudarAba('carrinho',this)">🛒 Pedido</button>
-          <button class="pdv-tab-btn" onclick="pdvMudarAba('produtos',this)">🍣 Cardápio</button>
+          <button class="pdv-tab-btn active" onclick="pdvMudarAba('produtos',this)">🍣 Cardápio</button>
+          <button class="pdv-tab-btn" onclick="pdvMudarAba('carrinho',this)">🛒 Pedido</button>
           <button class="pdv-tab-btn" onclick="pdvMudarAba('monitor',this)">📋 Mesas</button>
         </div>
 
-        <div class="pdv-container">
-          <div class="pdv-carrinho pdv-tab-active">
-            <h4 class="pdv-carrinho-titulo">🛒 Novo Pedido</h4>
+        <!-- VIEW: VENDA -->
+        <div id="pdv-panel-venda" class="pdv-view-panel">
+          <div class="pdv-container">
 
-            <div class="pdv-form-row">
-              <div class="pdv-mesa-col">
-                <label class="pdv-label">Mesa <span class="obrig">*</span></label>
-                <input type="number" id="balcao-mesa" class="form-control" placeholder="Nº" min="1" required />
+            <!-- COLUNA ESQUERDA: Produtos -->
+            <div class="pdv-produtos pdv-tab-active">
+              <!-- Barra de categorias + busca -->
+              <div class="pdv-cat-filterbar">
+                <div class="pdv-cat-chips" id="pdv-cat-filter">
+                  <!-- chips gerados por JS -->
+                </div>
+                <input type="text" id="pdv-busca" class="pdv-busca-input" placeholder="🔍 Buscar produto..." oninput="filtrarPDV(this.value)" />
               </div>
-              <div class="pdv-cliente-col">
-                <label class="pdv-label">Cliente</label>
-                <input type="text" id="balcao-cliente" class="form-control" placeholder="Nome do cliente" />
+              <!-- Mesas ativas (chips) -->
+              <div class="pdv-mesas-bar" id="pdv-mesas-bar">
+                <span class="pdv-mesas-label"><i class="fas fa-chair"></i> Mesas:</span>
+                <span class="mesa-monitor-vazio" id="pdv-mesas-vazio">Nenhuma mesa ativa</span>
+              </div>
+              <!-- Grid de produtos -->
+              <div id="pdv-grid"></div>
+            </div>
+
+            <!-- COLUNA DIREITA: Carrinho -->
+            <div class="pdv-carrinho pdv-tab-active">
+              <h4 class="pdv-carrinho-titulo">🛒 Novo Pedido</h4>
+
+              <div class="pdv-form-row">
+                <div class="pdv-mesa-col">
+                  <label class="pdv-label">Mesa <span class="obrig">*</span></label>
+                  <input type="number" id="balcao-mesa" class="form-control" placeholder="Nº" min="1" required />
+                </div>
+                <div class="pdv-cliente-col">
+                  <label class="pdv-label">Cliente</label>
+                  <input type="text" id="balcao-cliente" class="form-control" placeholder="Nome" />
+                </div>
+              </div>
+              <div class="pdv-tel-row">
+                <label class="pdv-label">Telefone</label>
+                <input type="tel" id="balcao-telefone" class="form-control" placeholder="Ex: 0981234567" />
+              </div>
+
+              <div class="pdv-lista-itens" id="pdv-lista"></div>
+
+              <div class="pdv-total-box">
+                <div class="pdv-total-row">
+                  <span>Total:</span>
+                  <span>Gs <span id="balcao-total">0</span></span>
+                </div>
+                <select id="balcao-pag" class="form-control pdv-select-pag"
+                  onchange="atualizarInfoPagPDV(parseInt(document.getElementById('balcao-total').innerText.replace(/\D/g,'')))">
+                  <option value="Efetivo">Efetivo</option>
+                  <option value="Cartao">Cartão</option>
+                  <option value="Pix">Pix</option>
+                  <option value="Transferencia">Transferência</option>
+                  <option value="Multipagamento">🔀 Dividir Pagamento</option>
+                </select>
+                <div id="balcao-pag-info" style="display:none; background:#e8f5e9; border:1px solid #4caf50; border-radius:6px; padding:8px 12px; font-size:0.9rem; color:#1b5e20; margin-bottom:8px"></div>
+
+                <!-- Painel Multipagamento PDV -->
+                <div id="box-multi-pdv" style="display:none; margin-top:8px">
+                  <button type="button" onclick="voltarPagamentoPDVUnico()"
+                    style="width:100%;padding:9px;background:#eef4ff;color:#2980b9;border:1.5px solid #2980b9;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;margin-bottom:8px;">
+                    🔁 Usar pagamento único
+                  </button>
+                  <p style="text-align:center;color:#888;font-size:0.75rem;margin:0 0 8px 0">≡ Divida o total entre as formas</p>
+                  <div id="multi-partes-pdv"></div>
+                  <button type="button" onclick="adicionarPartePagamentoPDV()"
+                    style="width:100%;padding:8px;background:#f8f9fa;color:#555;border:1.5px dashed #ccc;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.8rem;margin-top:4px;">
+                    + Adicionar forma
+                  </button>
+                  <div id="multi-status-pdv" style="display:none;margin-top:8px;padding:9px 12px;border-radius:8px;background:#eafaf1;border:1.5px solid #27ae60">
+                    <span id="multi-restante-pdv" style="font-weight:700;font-size:0.88rem"></span>
+                  </div>
+                </div>
+                <button class="btn btn-success btn-lancar-cozinha" onclick="salvarPedidoBalcao()">
+                  🚀 LANÇAR NA COZINHA
+                </button>
               </div>
             </div>
-            <div class="pdv-tel-row">
-              <label class="pdv-label">Telefone (WhatsApp)</label>
-              <input type="tel" id="balcao-telefone" class="form-control" placeholder="Ex: 0981234567" />
-            </div>
 
-            <div class="pdv-lista-itens" id="pdv-lista"></div>
-
-            <div class="pdv-total-box">
-              <div class="pdv-total-row">
-                <span>Total:</span>
-                <span>Gs <span id="balcao-total">0</span></span>
-              </div>
-              <select id="balcao-pag" class="form-control" class="pdv-select-pag"
-                onchange="atualizarInfoPagPDV(parseInt(document.getElementById('balcao-total').innerText.replace(/\D/g,'')))">
-                <option value="Efetivo">Efetivo</option>
-                <option value="Cartao">Cartão</option>
-                <option value="Pix">Pix</option>
-                <option value="Transferencia">Transferência</option>
-              </select>
-              <div id="balcao-pag-info" style="display:none; background:#e8f5e9; border:1px solid #4caf50; border-radius:6px; padding:8px 12px; font-size:0.9rem; color:#1b5e20; margin-bottom:8px"></div>
-              <button class="btn btn-success" class="btn-lancar-cozinha" onclick="salvarPedidoBalcao()">
-                🚀 LANÇAR NA COZINHA
-              </button>
-            </div>
           </div>
-
-          <div class="pdv-produtos">
-          <div class="pdv-mesas-bar" id="pdv-mesas-bar">
-            <span class="pdv-mesas-label"><i class="fas fa-chair"></i> Mesas:</span>
-            <span class="mesa-monitor-vazio" id="pdv-mesas-vazio">Nenhuma mesa ativa</span>
-          </div>
-          <div id="pdv-grid"></div>
         </div>
 
-          <div class="pdv-monitor">
+        <!-- VIEW: MESAS (monitor) -->
+        <div id="pdv-panel-mesas" class="pdv-view-panel" style="display:none">
+          <div class="pdv-monitor pdv-tab-active" style="height:calc(100vh - 200px); overflow-y:auto">
             <h4 class="pdv-monitor-titulo"><i class="fas fa-utensils"></i> Pedidos em Andamento</h4>
             <div id="lista-mesas-andamento">
               <p style="text-align: center; font-size: 0.8rem; color: #aaa; margin-top: 20px">Nenhum pedido ativo.</p>
             </div>
           </div>
+        </div>
+
+        <!-- MOBILE: barra inferior fixa com total + botão -->
+        <div class="pdv-mobile-footer" id="pdv-mobile-footer" style="display:none">
+          <div class="pdv-mobile-total">
+            <span id="pdv-mobile-qtd">0 itens</span>
+            <span class="pdv-mobile-valor">Gs <strong id="pdv-mobile-total-val">0</strong></span>
+          </div>
+          <button class="pdv-mobile-checkout-btn" onclick="pdvMudarAba('carrinho', document.querySelector('.pdv-tab-btn:nth-child(2)'))">
+            <i class="fas fa-shopping-cart"></i> VER PEDIDO
+          </button>
         </div>
       </div>
 
@@ -592,6 +677,20 @@
           </button>
         </div>
 
+        <!-- ===== ADICIONAIS GLOBAIS ===== -->
+        <div class="card cfg-card" style="margin-top:16px">
+          <div class="cfg-section-title"><i class="fas fa-plus-circle"></i> Adicionais Globais
+            <small style="font-weight:400;color:#888;font-size:0.82rem;display:block;margin-top:4px">
+              Estes adicionais aparecem na tela do cliente para <strong>todos os produtos</strong>. Use para opções universais (ex: "Molho Shoyu Extra", "Gengibre").
+            </small>
+          </div>
+          <div id="extras-globais-lista" style="margin-bottom:12px"></div>
+          <button class="btn btn-sm" style="background:#8e44ad;color:white" onclick="addExtraGlobal()">+ Adicionar Adicional Global</button>
+          <button class="btn btn-primary" onclick="salvarExtrasGlobais()" style="margin-top:12px;width:100%">
+            <i class="fas fa-save"></i> Salvar Adicionais Globais
+          </button>
+        </div>
+
         <!-- DEPOIS DA SEÇÃO DE PERSONALIZAÇÃO VISUAL -->
 <div id="card-cupons-cfg" class="card cfg-card" style="margin-top:16px">
     <div class="cfg-section-title">
@@ -720,6 +819,60 @@
             <i class="fas fa-paint-brush"></i> Salvar Personalização
           </button>
         </div>
+
+        <!-- ===== TABELA DE FRETE ===== -->
+        <div class="card cfg-card" style="margin-top:16px">
+          <div class="cfg-section-title">
+            <i class="fas fa-motorcycle"></i> Tabela de Frete por KM
+            <small style="font-weight:400;color:#888;font-size:0.82rem;display:block;margin-top:4px">
+              Defina o valor cobrado do <strong>cliente</strong> e o valor pago ao <strong>motoboy</strong> por faixa de distância.
+              Acima de 20km será exibido "A combinar" para o cliente.
+            </small>
+          </div>
+
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:0.88rem">
+              <thead>
+                <tr style="background:#f4f6f8">
+                  <th style="padding:10px 8px;text-align:left;border-bottom:2px solid #e0e0e0;white-space:nowrap">Faixa (km)</th>
+                  <th style="padding:10px 8px;text-align:center;border-bottom:2px solid #e0e0e0;color:#2980b9">💰 Valor Loja (Gs)</th>
+                  <th style="padding:10px 8px;text-align:center;border-bottom:2px solid #e0e0e0;color:#27ae60">🛵 Valor Motoboy (Gs)</th>
+                </tr>
+              </thead>
+              <tbody id="tabela-frete-body">
+                <!-- Gerado pelo JS -->
+              </tbody>
+              <tfoot>
+                <tr style="background:#fff8e6">
+                  <td style="padding:10px 8px;font-weight:700;border-top:2px dashed #e0e0e0">Acima de 20 km</td>
+                  <td colspan="2" style="padding:10px 8px;text-align:center;color:#e67e22;font-weight:700;border-top:2px dashed #e0e0e0">
+                    🤝 A Combinar
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div style="margin-top:18px; padding:14px; background:#f0fff4; border:1.5px solid #27ae60; border-radius:10px;">
+            <div style="font-weight:700; font-size:0.9rem; color:#155c24; margin-bottom:10px;">
+              ⛽ Ajuda de Custo de Combustível (por motoboy/dia)
+              <small style="font-weight:400; color:#555; display:block; margin-top:3px;">
+                Valor adicional pago ao motoboy 1x por dia, independente da quantidade de entregas.
+              </small>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="color:#555; font-size:0.88rem; white-space:nowrap;">Gs</span>
+              <input type="number" id="cfg-combustivel" class="form-control"
+                     placeholder="Ex: 20000" min="0" step="1000"
+                     style="max-width:180px; border:1.5px solid #27ae60; text-align:center;">
+            </div>
+          </div>
+
+          <button class="btn btn-primary" onclick="salvarTabelaFrete()" style="margin-top:16px;width:100%">
+            <i class="fas fa-save"></i> Salvar Tabela de Frete e Combustível
+          </button>
+        </div>
+
       </div>
 
     </div><!-- /main-content -->
@@ -934,6 +1087,24 @@
           </div>
         </div>
 
+        <!-- ===== OPÇÕES DE PREPARO ===== -->
+        <div class="form-group" style="border:1px solid #e0f0ff; border-radius:10px; padding:14px; background:#f7fbff;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <label style="font-weight:700; margin:0">
+              🍳 Opções de Preparo
+              <small style="display:block; font-weight:normal; color:#888">Ex: "Salmão Cru / Flambado", "Batata Frita / Mandioca"</small>
+            </label>
+            <div style="display:flex; align-items:center; gap:8px">
+              <input type="checkbox" id="prod-tem-preparo" style="width:18px;height:18px" onchange="togglePreparo()">
+              <label for="prod-tem-preparo" style="cursor:pointer; font-size:0.9rem">Ativar preparo</label>
+            </div>
+          </div>
+          <div id="preparo-area" style="display:none">
+            <div id="preparo-lista"></div>
+            <button class="btn btn-sm" style="background:#2980b9;color:white;margin-top:8px" onclick="addOpcaoPreparo()">+ Adicionar Opção</button>
+          </div>
+        </div>
+
         <div class="modal-actions" style="margin-top:16px">
           <button class="btn btn-primary" onclick="salvarProduto()">Salvar Produto</button>
           <button class="btn btn-secondary" onclick="fecharModal('modal-produto')">Cancelar</button>
@@ -1054,16 +1225,15 @@
 
     <!-- Tabela -->
     <div class="table-container" style="overflow-x:auto;">
-      <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
-        <thead style="background:#2c3e50;color:white;">
-          <tr>
-            <th style="padding:8px;text-align:left">#ID</th>
-            <th style="padding:8px;text-align:left">Data/Hora</th>
-            <th style="padding:8px;text-align:left">Cliente</th>
-            <th style="padding:8px;text-align:left">Itens</th>
-            <th style="padding:8px;text-align:left">Status</th>
-            <th style="padding:8px;text-align:left">Total</th>
-            <th style="padding:8px;text-align:left">Tempos</th>
+      <table style="width:100%;border-collapse:collapse;font-size:0.83rem;border-radius:10px;overflow:hidden;">
+        <thead>
+          <tr style="background:linear-gradient(135deg,#1a1a2e,#2c3e50);color:white;font-size:0.78rem;letter-spacing:0.5px;text-transform:uppercase;">
+            <th style="padding:12px 10px;text-align:left;width:70px">#ID / Data</th>
+            <th style="padding:12px 10px;text-align:left">Cliente</th>
+            <th style="padding:12px 10px;text-align:left">Itens</th>
+            <th style="padding:12px 10px;text-align:left;width:130px">Status</th>
+            <th style="padding:12px 10px;text-align:right;width:110px">Total</th>
+            <th style="padding:12px 10px;text-align:left;width:200px">⏱ Timeline</th>
           </tr>
         </thead>
         <tbody id="rel-tbody"></tbody>

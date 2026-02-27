@@ -5,56 +5,155 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Imprimir Comanda - Cantinho Brasileiro</title>
     <style>
-        body { font-family: 'Courier New', Courier, monospace; background: #eee; padding: 20px; }
-        
+        /* ────────────────────────────────────────────
+           TELA: preview antes de imprimir
+        ──────────────────────────────────────────── */
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background: #d0d0d0;
+            padding: 20px;
+            font-size: 15px;
+        }
+
         .ticket {
             background: #fff;
-            max-width: 300px;
+            max-width: 360px;
             margin: 0 auto;
-            padding: 10px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            padding: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
 
         h3, p { margin: 0; padding: 0; }
-        h3 { text-align: center; margin-bottom: 5px; font-size: 16px; }
-        .centered { text-align: center; font-size: 12px; margin-bottom: 10px; }
-        
-        hr { border-top: 1px dashed #000; margin: 8px 0; }
-        
-        .info-group { margin-bottom: 5px; font-size: 12px; }
-        .info-group strong { display: inline-block; width: 60px; }
 
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th { text-align: left; border-bottom: 1px dashed #000; }
-        td { vertical-align: top; padding: 2px 0; }
-        
-        .totals { text-align: right; font-size: 12px; margin-top: 10px; }
-        .total-final { font-size: 16px; font-weight: bold; margin-top: 5px; }
+        h3 {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-bottom: 4px;
+        }
+
+        .centered        { text-align: center; font-size: 14px; margin-bottom: 3px; }
+        .num-pedido      { font-weight: bold; font-size: 18px; }
+        .tipo-entrega-tx { font-weight: bold; font-size: 18px; text-align: center; margin: 6px 0; }
+
+        hr { border: none; border-top: 2px dashed #000; margin: 7px 0; }
+
+        .info-group        { margin-bottom: 5px; font-size: 14px; line-height: 1.65; }
+        .info-group strong { display: inline-block; width: 60px; font-size: 13px; }
+
+        #endereco-box { font-size: 14px; margin-bottom: 5px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 15px; }
+        th {
+            text-align: left;
+            border-bottom: 2px dashed #000;
+            font-size: 13px;
+            padding-bottom: 3px;
+            font-weight: bold;
+        }
+        td { vertical-align: top; padding: 4px 0; font-weight: 600; }
+        td small { font-size: 12px; font-weight: normal; }
+
+        .totals       { text-align: right; font-size: 14px; margin-top: 8px; line-height: 1.8; }
+        .total-final  { font-size: 22px; font-weight: bold; margin-top: 6px; }
+
+        #forma-pag { font-size: 14px; font-weight: bold; }
+        #obs-pag   { font-size: 13px; margin-top: 3px; font-style: italic; line-height: 1.5; }
+
+        .rodape { text-align: center; font-size: 13px; margin-top: 4px; }
 
         .btn-print {
-            display: block; width: 100%; padding: 15px; background: #1a7a2e; 
-            color: white; border: none; font-size: 16px; font-weight: bold; 
+            display: block; width: 100%; padding: 16px;
+            background: #1a7a2e; color: white; border: none;
+            font-size: 17px; font-weight: bold;
             cursor: pointer; margin-top: 20px; border-radius: 8px;
         }
 
+        /* ────────────────────────────────────────────
+           IMPRESSÃO — Otimizado para rolos térmicos
+           40mm (área útil ~32mm) e 58mm (área útil ~48mm)
+           Fontes grandes e negrito para boa leitura
+        ──────────────────────────────────────────── */
         @media print {
-            body { background: none; padding: 0; margin: 0; }
+            body {
+                background: none;
+                padding: 0;
+                margin: 0;
+                font-size: 20px;          /* base grande para térmica */
+                font-weight: bold;
+                -webkit-print-color-adjust: exact;
+            }
             .btn-print { display: none; }
-            .ticket { box-shadow: none; max-width: 100%; width: 100%; margin: 0; }
-            @page { margin: 0; }
+            .ticket {
+                box-shadow: none;
+                max-width: 100%;
+                width: 100%;
+                margin: 0;
+                padding: 2px;
+            }
+            @page {
+                margin: 2mm;
+                size: 58mm auto; /* ajusta para 58mm; a 40mm reduzirá automaticamente */
+            }
+
+            /* Títulos e cabeçalho */
+            h3 {
+                font-size: 30px;
+                font-weight: bold;
+                letter-spacing: 2px;
+            }
+            .num-pedido      { font-size: 26px; font-weight: bold; }
+            .centered        { font-size: 18px; }
+            .tipo-entrega-tx { font-size: 26px; font-weight: bold; }
+
+            /* Info do pedido */
+            .info-group        { font-size: 18px; font-weight: bold; line-height: 1.8; }
+            .info-group strong { font-size: 17px; width: 56px; }
+            #endereco-box      { font-size: 18px; font-weight: bold; }
+
+            /* Itens */
+            table  { font-size: 20px; }
+            th     { font-size: 18px; font-weight: bold; border-bottom-width: 2px; }
+            td     { padding: 5px 0; font-weight: bold; }
+            td small { font-size: 16px; font-weight: normal; }
+
+            /* Observações e variação */
+            td small[style*="color:#555"],  /* variação */
+            td small[style*="color:#2980b9"] /* preparo */ {
+                font-size: 16px;
+                font-weight: bold;
+            }
+            td strong[style*="font-size:10px"] { /* OBS */
+                font-size: 17px !important;
+                font-weight: bold;
+            }
+
+            /* Totais */
+            .totals      { font-size: 18px; font-weight: bold; line-height: 2; }
+            .total-final { font-size: 30px; font-weight: bold; }
+
+            /* Pagamento */
+            #forma-pag { font-size: 18px; font-weight: bold; }
+            #obs-pag   { font-size: 17px; font-weight: bold; }
+
+            /* Rodapé */
+            .rodape { font-size: 16px; font-weight: bold; }
+
+            hr { border-top: 2px dashed #000; }
         }
     </style>
+<base target="_blank">
 <base target="_blank">
 </head>
 <body>
 
     <div class="ticket">
-        <h3>CANTINHO BRASILEIRO</h3>
-        <p class="centered" style="font-weight:bold; font-size:14px; margin-top:5px;">PEDIDO #<span id="id-pedido">---</span></p>
-        <p class="centered"></p>
+        <h3>CANTINHO BR</h3>
+        <p class="centered num-pedido">PEDIDO #<span id="id-pedido">---</span></p>
         <p class="centered">Tel: +595 982 808985</p>
         <hr>
-        
+
         <div class="info-group">
             <strong>Data:</strong> <span id="data-hora">---</span><br>
             <strong>Cliente:</strong> <span id="nome">---</span><br>
@@ -62,10 +161,8 @@
         </div>
         <hr>
 
-        <div style="text-align:center; font-weight:bold; font-size:14px; margin:5px 0;">
-            <span id="tipo-entrega">---</span>
-        </div>
-        <div id="endereco-box" style="font-size:11px; margin-bottom:5px; display:none;">
+        <div class="tipo-entrega-tx"><span id="tipo-entrega">---</span></div>
+        <div id="endereco-box" style="display:none;">
             Ref: <span id="ref-entrega">---</span>
         </div>
         <hr>
@@ -73,7 +170,7 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width:15%">Qtd</th>
+                    <th style="width:14%">Qtd</th>
                     <th>Item</th>
                     <th style="text-align:right">Total</th>
                 </tr>
@@ -92,18 +189,18 @@
         <hr>
 
         <div class="info-group">
-            <strong>Pagto:</strong> <span id="forma-pag">---</span><br>
-            <div id="obs-pag" style="margin-top:2px; font-style:italic;"></div>
+            <strong>Pagto:</strong> <span id="forma-pag">---</span>
+            <div id="obs-pag"></div>
         </div>
 
-        <div id="box-factura" style="display:none; margin-top:10px; border:1px solid #000; padding:5px;">
+        <div id="box-factura" style="display:none; margin-top:10px; border:1px dashed #000; padding:6px;">
             <strong>DADOS FACTURA:</strong><br>
             RUC: <span id="ruc">---</span><br>
             Razão: <span id="razao">---</span>
         </div>
 
         <br>
-        <p class="centered">*** OBRIGADO PELA PREFERÊNCIA ***</p>
+        <p class="rodape">*** OBRIGADO PELA PREFERÊNCIA ***</p>
     </div>
 
     <button class="btn-print" onclick="window.print()">🖨️ IMPRIMIR PEDIDO</button>
@@ -176,11 +273,25 @@
                         
                         const montagem = item.m || item.montagem || [];
                         const observacao = item.o || item.obs || item.observacao || '';
-                        const tipo = item.t || item.tipo || '';
+                        const tipo = item.t || item.tipo || '';    // variação (ex: "Combo Grande")
+                        const preparo = item.pr || item.preparo || ''; // preparo (ex: "Flambado")
                         
                         let detalhes = '';
-                        if (tipo && tipo !== 'Padrão' && tipo !== 'Montado') detalhes += '<br><small>('+tipo+')</small>';
-                        if (Array.isArray(montagem) && montagem.length > 0) detalhes += '<br><small style="font-style:italic">Ing: '+montagem.join(', ')+'</small>';
+                        // Mostra variação apenas se for diferente do nome do item (evita duplicação)
+                        if (tipo && tipo !== nomeItem && tipo !== 'Padrão' && tipo !== 'Montado') {
+                          detalhes += '<br><small style="color:#555">▸ '+tipo+'</small>';
+                        }
+                        if (preparo) detalhes += '<br><small style="color:#2980b9">🍳 '+preparo+'</small>';
+                        if (Array.isArray(montagem) && montagem.length > 0) {
+                          montagem.forEach(linha => {
+                            const idx = linha.indexOf(':');
+                            if (idx > 0) {
+                              detalhes += '<br><small style="font-size:10px"><strong>'+linha.slice(0,idx)+':</strong> '+linha.slice(idx+1).trim()+'</small>';
+                            } else {
+                              detalhes += '<br><small style="font-style:italic; font-size:10px">· '+linha+'</small>';
+                            }
+                          });
+                        }
                         if (observacao) detalhes += '<br><strong style="font-size:10px">OBS: '+observacao+'</strong>';
                         
                         const total = (preco * quantidade).toLocaleString('es-PY');
@@ -199,8 +310,25 @@
 
                 // 5. Pagamento
                 const pagamento = pedido.pagamento || {};
-                document.getElementById('forma-pag').innerText = pagamento.metodo || pagamento.forma_pagamento || 'Não informado';
-                document.getElementById('obs-pag').innerText = pagamento.obs || pagamento.obs_pagamento || '';
+                const metodoPag = pagamento.metodo || pagamento.forma_pagamento || 'Não informado';
+                const obsPagRaw = pagamento.obs   || pagamento.obs_pagamento   || '';
+
+                if (metodoPag === 'Multipagamento') {
+                    document.getElementById('forma-pag').innerText = '🔀 Pagamento dividido:';
+                    try {
+                        const partes = JSON.parse(obsPagRaw);
+                        document.getElementById('obs-pag').innerHTML = partes.map((p, i) => {
+                            let linha = `${i + 1}. ${p.metodo}: Gs ${parseFloat(p.valor).toLocaleString('es-PY')}`;
+                            if (p.troco) linha += ` (Troco p/ ${p.troco})`;
+                            return linha;
+                        }).join('<br>');
+                    } catch(e) {
+                        document.getElementById('obs-pag').innerText = obsPagRaw;
+                    }
+                } else {
+                    document.getElementById('forma-pag').innerText = metodoPag;
+                    document.getElementById('obs-pag').innerText = obsPagRaw;
+                }
 
                 // 6. Factura
                 if(pedido.factura && (pedido.factura.ruc || pedido.factura.razao)) {

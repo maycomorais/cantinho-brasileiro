@@ -2,7 +2,7 @@
 // 1. CONSTANTES E INICIALIZAÇÃO
 // =========================================
 const TAXA_MOTOBOY = 5000;
-const AJUDA_COMBUSTIVEL = 20000;
+let AJUDA_COMBUSTIVEL = 20000; // Carregado do banco em carregarConfiguracoes()
 const COORD_LOJA = { lat: -25.2365803, lng: -57.5380816 };
 
 let perfilUsuario = null;
@@ -116,6 +116,14 @@ function showTab(tabId, event) {
   // 4. Ativa o botão no menu lateral
   if (event && event.currentTarget) {
     event.currentTarget.classList.add('active');
+  } else {
+    // Restaura highlight ao carregar página (sem evento de clique)
+    document.querySelectorAll('.menu-item').forEach((m) => {
+      const oc = m.getAttribute('onclick') || '';
+      if (oc.includes(`'${realTabId}'`) || oc.includes(`'${tabId}'`)) {
+        m.classList.add('active');
+      }
+    });
   }
 
   // 5. PULO DO GATO: Se a aba for produtos, categorias ou motoboys,
@@ -127,7 +135,7 @@ function showTab(tabId, event) {
   }
 
   // 6. Carregamento de dados
-  if (realTabId === 'pedidos') carregarPedidos();
+  if (realTabId === 'pedidos') { carregarPedidos(); carregarStatusDelivery(); }
   if (realTabId === 'cozinha') carregarCozinha();
   if (realTabId === 'financeiro') calcularFinanceiro();
   if (realTabId === 'dashboard') carregarDashboard();
@@ -169,13 +177,14 @@ function iniciarRealtime() {
   supa
     .channel('tabela-pedidos-admin')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, (payload) => {
-      // Se entrou pedido novo pendente, tenta tocar o som
+      // Som só para pedido NOVO pendente (nunca para cancelamento ou update)
       if (payload.eventType === 'INSERT' && payload.new.status === 'pendente') {
         tocarAlarme();
       }
-      // Atualiza a tela atual
+      // Atualiza tela — silencioso=true em updates para não re-tocar alarme
+      const silencioso = payload.eventType === 'UPDATE';
       const abaAtual = localStorage.getItem('lastTab');
-      if (abaAtual === 'pedidos') carregarPedidos();
+      if (abaAtual === 'pedidos') carregarPedidos(silencioso);
       if (abaAtual === 'cozinha') carregarCozinha();
       if (abaAtual === 'dashboard') carregarDashboard();
     })
@@ -235,10 +244,14 @@ async function carregarPedidos(silencioso = false) {
   }
 
   // 1. Som e Notificação
-  const { count } = await supa
+  const { count, error: countError } = await supa
     .from('pedidos')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'pendente');
+
+  if (countError) {
+    console.warn('Erro ao contar pedidos pendentes:', countError.message);
+  }
 
   if (count > 0) {
     if (!silencioso && typeof tocarAlarme === 'function') tocarAlarme();
@@ -260,6 +273,23 @@ async function carregarPedidos(silencioso = false) {
   // Container de cards mobile
   const cardsDiv = document.getElementById('lista-pedidos-cards');
   if (cardsDiv) cardsDiv.innerHTML = '';
+
+  // ── AUTO-CONFIRM: pedidos saiu_entrega há mais de 4h ──────────────────────
+  const _QUATRO_HORAS_MS = 4 * 60 * 60 * 1000;
+  const _agora = Date.now();
+  const pedidosParaAutoConfirmar = (pedidos || []).filter(p =>
+    p.status === 'saiu_entrega' &&
+    p.tempo_saiu_entrega &&
+    (_agora - new Date(p.tempo_saiu_entrega).getTime()) > _QUATRO_HORAS_MS
+  );
+  for (const p of pedidosParaAutoConfirmar) {
+    console.log(`⏰ Auto-confirmando entrega do pedido #${p.id} (mais de 4h em saiu_entrega)`);
+    await supa.from('pedidos').update({
+      status: 'entregue',
+      tempo_entregue: new Date().toISOString()
+    }).eq('id', p.id);
+  }
+  // ───────────────────────────────────────────────────────────────────────────
 
   // Badge de cancelamento pendente para o dono
   const badgeCancelPendente =
@@ -435,7 +465,10 @@ async function carregarPedidos(silencioso = false) {
                             <span class="status-badge st-${p.status}" style="font-size:0.7rem">${statusLabel}</span>
                         </div>
                         <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <strong style="font-size:1rem;color:var(--dark)">Gs ${(p.total_geral || 0).toLocaleString('es-PY')}</strong>
+                            <div>
+                              <strong style="font-size:1rem;color:var(--dark)">Gs ${(p.total_geral || 0).toLocaleString('es-PY')}</strong>
+                              ${p.frete_motoboy ? `<div style="font-size:0.72rem;color:#27ae60;margin-top:2px">🛵 Motoboy: Gs ${(p.frete_motoboy).toLocaleString('es-PY')}</div>` : ''}
+                            </div>
                             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${cardAcoes}</div>
                         </div>
                         ${badgeCancelCard}
@@ -596,6 +629,8 @@ async function imprimirPedido(id) {
         q: i.qtd || i.q || 1,
         n: i.nome || i.n,
         p: i.preco || i.p || 0,
+        t: i.variacao || i.t || '',
+        pr: i.preparo || i.pr || '',
         m: i.montagem || i.m,
         o: i.obs || i.o,
       })),
@@ -656,7 +691,7 @@ async function carregarCozinha() {
     // === Filtra apenas itens PENDENTES para a cozinha ===
     // Itens sem status_item são tratados como pendente (retrocompatibilidade)
     const itensPendentes = (p.itens || []).filter(
-      (item) => !item.status_item || item.status_item === 'pendente'
+      (item) => !item.status_item || item.status_item === 'pendente',
     );
 
     // Se não há nenhum item pendente neste pedido, pula o card
@@ -664,23 +699,39 @@ async function carregarCozinha() {
 
     let itensHtml = '';
     itensPendentes.forEach((item) => {
-        // Suporta {qtd, nome, montagem, obs} E {q, n, m, o}
-        const quantidade = item.qtd || item.q || 1;
-        const nomeItem = item.nome || item.n || 'Item';
-        const observacao = item.obs || item.o || '';
-        const montagemArray = item.montagem || item.m || [];
+      const quantidade = item.qtd || item.q || 1;
+      const nomeItem = item.nome || item.n || 'Item';
+      const variacaoItem = item.variacao || item.t || '';   // variação separada do nome
+      const preparoItem = item.preparo || item.pr || '';    // preparo (cru/flambado etc)
+      const observacao = item.obs || item.o || '';
+      const montagemArray = item.montagem || item.m || [];
 
-        const obs = observacao
-          ? `<div style="color:#e74c3c; font-size:0.85rem">⚠️ ${observacao}</div>`
-          : '';
-        const listaMontagem = Array.isArray(montagemArray) ? montagemArray.join(', ') : '';
-        const montagem = listaMontagem
-          ? `<div style="font-size:0.8rem; color:#666; margin-left:10px;">+ ${listaMontagem}</div>`
-          : '';
+      const obs = observacao
+        ? `<div style="color:#e74c3c; font-size:0.85rem">⚠️ ${observacao}</div>`
+        : '';
+      const listaMontagem = Array.isArray(montagemArray)
+        ? montagemArray.map(linha => {
+            const idx = linha.indexOf(':');
+            if (idx > 0) {
+              return `<strong>${linha.slice(0, idx)}:</strong> ${linha.slice(idx + 1).trim()}`;
+            }
+            return linha;
+          }).join('<br>')
+        : '';
+      const montagem = listaMontagem
+        ? `<div style="font-size:0.8rem; color:#444; margin-left:10px; line-height:1.6;">${listaMontagem}</div>`
+        : '';
+      const variacaoHtml = variacaoItem
+        ? `<span style="color:#FF441F; font-size:0.85rem; font-weight:600;"> ▸ ${variacaoItem}</span>`
+        : '';
+      const preparoHtml = preparoItem
+        ? `<div style="color:#2980b9; font-size:0.82rem; margin-left:10px;">🍳 ${preparoItem}</div>`
+        : '';
 
-        itensHtml += `
+      itensHtml += `
                     <li style="border-bottom:1px dashed #444; padding:5px 0;">
-                        <strong>${quantidade}x</strong> ${nomeItem}
+                        <strong>${quantidade}x</strong> ${nomeItem}${variacaoHtml}
+                        ${preparoHtml}
                         ${montagem}
                         ${obs}
                     </li>
@@ -768,12 +819,24 @@ async function calcularFinanceiro() {
   // ========================================
   // 1. BUSCA PEDIDOS (CORRIGIDO)
   // ========================================
+  // Paraguay = UTC-4 → shift local dates to UTC for correct Supabase filtering
+  // e.g. local 2026-02-26 00:00 = UTC 2026-02-26 04:00
+  const _tzOffsetMs = 4 * 60 * 60 * 1000; // UTC-4 in ms
+  const _localToUTC = (localDateStr, isEnd) => {
+    const d = new Date(localDateStr + (isEnd ? 'T23:59:59' : 'T00:00:00'));
+    return new Date(d.getTime() + _tzOffsetMs).toISOString();
+  };
+  const utcInicio = dataInicio.includes('T') ? dataInicio : _localToUTC(dataInicio.split(' ')[0], false);
+  const utcFim    = dataFim.includes('T')    ? dataFim    : _localToUTC(dataFim.split(' ')[0], true);
+
+  // Financeiro inclui todos os status exceto pendente e cancelado
+  // (em_preparo = PDV em andamento; pronto/saiu/entregue = delivery em curso ou finalizado)
   let query = supa
     .from('pedidos')
-    .select('*, motoboys(nome)') // JOIN para pegar nome do motoboy
-    .eq('status', 'entregue') // ← CORRIGIDO: só vendas finalizadas
-    .gte('created_at', dataInicio)
-    .lte('created_at', dataFim);
+    .select('*, motoboys(nome)')
+    .in('status', ['entregue', 'em_preparo', 'pronto_entrega', 'saiu_entrega'])
+    .gte('created_at', utcInicio)
+    .lte('created_at', utcFim);
 
   // Filtro por forma de pagamento
   if (tipoFiltro !== 'todos') {
@@ -1101,7 +1164,12 @@ async function carregarRelatorio() {
   } else {
     const ini = filtroInicio || hoje;
     const fim = filtroFim || hoje;
-    query = query.gte('created_at', ini + ' 00:00:00').lte('created_at', fim + ' 23:59:59');
+    // Paraguay UTC-4: shift local date range to UTC so after-midnight sales are captured
+    // e.g. local 00:00 PY = UTC 04:00; local 23:59 PY = UTC 03:59 next day
+    const _off = 4 * 60 * 60 * 1000;
+    const utcIni = new Date(new Date(ini + 'T00:00:00').getTime() + _off).toISOString();
+    const utcFim = new Date(new Date(fim + 'T23:59:59').getTime() + _off).toISOString();
+    query = query.gte('created_at', utcIni).lte('created_at', utcFim);
   }
   const { data: pedidos, error } = await query;
   if (error) {
@@ -1118,61 +1186,118 @@ async function carregarRelatorio() {
     return Math.floor(diff / 60) + 'h ' + (diff % 60) + 'm';
   };
   const fmtHora = (t) =>
-    t ? new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-';
+    t ? new Date(t).toLocaleTimeString('pt-BR', {
+          hour: '2-digit', minute: '2-digit',
+          timeZone: 'America/Asuncion'
+        }) : '-';
+  const scMap = {
+    pendente:       { bg:'#fff3cd', color:'#856404', label:'⏳ Pendente' },
+    em_preparo:     { bg:'#ffe5d0', color:'#a63c06', label:'🔥 Em Preparo' },
+    pronto_entrega: { bg:'#d1ecf1', color:'#0c5460', label:'📦 Pronto' },
+    saiu_entrega:   { bg:'#d4edda', color:'#155724', label:'🛵 Saiu' },
+    entregue:       { bg:'#d4edda', color:'#155724', label:'✅ Entregue' },
+    cancelado:      { bg:'#f8d7da', color:'#721c24', label:'❌ Cancelado' },
+  };
+
   (pedidos || []).forEach((p) => {
-    const statusBadge =
-      {
-        pendente: '🔔 Pendente',
-        em_preparo: '🔥 Preparo',
-        pronto_entrega: '📦 Pronto',
-        saiu_entrega: '🛵 Saiu',
-        entregue: '✅ Entregue',
-        cancelado: '❌ Cancelado',
-      }[p.status] || p.status;
-    const itensList = (p.itens || [])
-      .map((i) => (i.qtd || i.q || 1) + 'x ' + (i.nome || i.n || '?'))
-      .join(', ');
-    tbody.innerHTML +=
-      '<tr><td><strong>#' +
-      p.id +
-      '</strong></td><td>' +
-      new Date(p.created_at).toLocaleString('pt-BR') +
-      '</td><td><div style="font-weight:600">' +
-      (p.cliente_nome || '-') +
-      '</div><div style="font-size:0.75rem;color:#666">' +
-      (p.cliente_telefone || '') +
-      '</div></td><td style="font-size:0.8rem">' +
-      (itensList || '-') +
-      '</td><td>' +
-      statusBadge +
-      (p.cancelamento_solicitado && p.status !== 'cancelado' ? ' 🚫' : '') +
-      '</td><td>Gs ' +
-      (p.total_geral || 0).toLocaleString('es-PY') +
-      '</td><td style="font-size:0.78rem"><div>📥 Receb: ' +
-      fmtHora(p.tempo_recebido) +
-      '</div><div>✅ Aceite: ' +
-      fmtHora(p.tempo_confirmado) +
-      ' (' +
-      fmtDiff(p.tempo_recebido, p.tempo_confirmado) +
-      ')</div><div>🔥 Cozinha: ' +
-      fmtHora(p.tempo_preparo_iniciado) +
-      '</div><div>📦 Pronto: ' +
-      fmtHora(p.tempo_pronto) +
-      ' (' +
-      fmtDiff(p.tempo_preparo_iniciado, p.tempo_pronto) +
-      ')</div><div>🛵 Saiu: ' +
-      fmtHora(p.tempo_saiu_entrega) +
-      '</div><div>✅ Entregue: ' +
-      fmtHora(p.tempo_entregue) +
-      ' (' +
-      fmtDiff(p.tempo_saiu_entrega, p.tempo_entregue) +
-      ')</div><div><strong>⏱ Total: ' +
-      fmtDiff(p.tempo_recebido, p.tempo_entregue) +
-      '</strong></div></td></tr>';
+    const sc = scMap[p.status] || { bg:'#f0f0f0', color:'#333', label: p.status };
+    const isPDV = p.tipo_entrega === 'balcao';
+
+    const itensList = (p.itens || []).map((i) => {
+      const qtd  = i.qtd || i.q || 1;
+      const nome = i.nome || i.n || '?';
+      const variacao = i.variacao || i.t || '';
+      const montagem = i.montagem || i.m || [];
+      let lbl = `<strong>${qtd}x</strong> ${nome}`;
+      if (variacao && variacao !== nome) lbl += ` <span style="color:#e67e22">▸ ${variacao}</span>`;
+      if (montagem.length > 0) {
+        const montagemHtml = montagem.map(linha => {
+          const idx = linha.indexOf(':');
+          if (idx > 0) return `<strong>${linha.slice(0, idx)}:</strong> ${linha.slice(idx + 1).trim()}`;
+          return linha;
+        }).join(' · ');
+        lbl += ` <span style="color:#555;font-size:0.78em">(${montagemHtml})</span>`;
+      }
+      return lbl;
+    }).join('<br>');
+
+    // Cancelamento info
+    let cancelInfo = '';
+    if (p.status === 'cancelado') {
+      const quem = p.cancelamento_solicitado_por || 'admin';
+      cancelInfo = `<div style="margin-top:5px;padding:5px 7px;background:#fde;border-radius:6px;font-size:0.72rem;color:#a00">
+        🚫 <strong>Por:</strong> ${quem}${p.cancelamento_motivo ? '<br><em>' + p.cancelamento_motivo + '</em>' : ''}</div>`;
+    } else if (p.cancelamento_solicitado) {
+      cancelInfo = `<div style="margin-top:4px;font-size:0.7rem;color:#e74c3c">
+        🚫 Solicitado por: ${p.cancelamento_solicitado_por || '?'}</div>`;
+    }
+
+    // Tipo badge
+    const tipoBadges = {
+      balcao:   '<span style="background:#e8f4f8;color:#1a6e8a;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🏪 PDV</span>',
+      delivery: '<span style="background:#e8f7e8;color:#1a6e2e;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🛵 Delivery</span>',
+      retirada: '<span style="background:#f7f0e8;color:#6e4a1a;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🚶 Retirada</span>',
+    };
+    const tipoBadge = tipoBadges[p.tipo_entrega] || '';
+
+    // Timeline — PDV tem etapas diferentes
+    const tl = isPDV ? [
+      { icon:'🏪', label:'Abertura', val: fmtHora(p.tempo_recebido || p.created_at), diff: null },
+      { icon:'🔥', label:'Cozinha',  val: fmtHora(p.tempo_preparo_iniciado),          diff: null },
+      { icon:'📦', label:'Pronto',   val: fmtHora(p.tempo_pronto),                    diff: fmtDiff(p.tempo_preparo_iniciado, p.tempo_pronto) },
+      { icon:'✅', label:'Fechado',  val: fmtHora(p.tempo_entregue),                  diff: fmtDiff(p.tempo_recebido || p.created_at, p.tempo_entregue) },
+    ] : [
+      { icon:'📥', label:'Recebido', val: fmtHora(p.tempo_recebido),         diff: null },
+      { icon:'✅', label:'Aceite',   val: fmtHora(p.tempo_confirmado),        diff: fmtDiff(p.tempo_recebido, p.tempo_confirmado) },
+      { icon:'🔥', label:'Cozinha',  val: fmtHora(p.tempo_preparo_iniciado),  diff: null },
+      { icon:'📦', label:'Pronto',   val: fmtHora(p.tempo_pronto),            diff: fmtDiff(p.tempo_preparo_iniciado, p.tempo_pronto) },
+      { icon:'🛵', label:'Saiu',     val: fmtHora(p.tempo_saiu_entrega),      diff: null },
+      { icon:'🏠', label:'Entregue', val: fmtHora(p.tempo_entregue),          diff: fmtDiff(p.tempo_saiu_entrega, p.tempo_entregue) },
+    ];
+
+    const tlHtml = tl.map(t => {
+      const vazio = t.val === '-';
+      return `<div style="display:flex;align-items:baseline;gap:5px;padding:2px 0;border-bottom:1px solid #f5f5f5">
+        <span style="min-width:18px;font-size:0.85em">${t.icon}</span>
+        <span style="min-width:64px;font-size:0.72rem;color:#888">${t.label}:</span>
+        <span style="font-size:0.78rem;font-weight:${vazio?'400':'600'};color:${vazio?'#ccc':'#222'}">${t.val}</span>
+        ${t.diff && t.diff !== '-' ? `<span style="font-size:0.68rem;color:#999">(${t.diff})</span>` : ''}
+      </div>`;
+    }).join('');
+
+    const totalTime = isPDV
+      ? fmtDiff(p.tempo_recebido || p.created_at, p.tempo_entregue)
+      : fmtDiff(p.tempo_recebido, p.tempo_entregue);
+
+    const _tz = { timeZone: 'America/Asuncion' };
+    tbody.innerHTML += `<tr style="border-bottom:1px solid #eee;vertical-align:top">
+      <td style="padding:10px 8px;white-space:nowrap">
+        <div style="font-size:1rem;font-weight:700;color:#1a1a2e">#${p.id}</div>
+        <div style="font-size:0.73rem;color:#aaa">${new Date(p.created_at).toLocaleDateString('pt-BR', _tz)}</div>
+        <div style="font-size:0.78rem;color:#666">${new Date(p.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',..._tz})}</div>
+      </td>
+      <td style="padding:10px 8px">
+        <div style="font-weight:700;color:#1a1a2e">${p.cliente_nome || '-'}</div>
+        <div style="font-size:0.73rem;color:#999">📞 ${p.cliente_telefone || '-'}</div>
+        <div style="margin-top:4px">${tipoBadge}</div>
+      </td>
+      <td style="padding:10px 8px;font-size:0.82rem;max-width:260px;line-height:1.6">${itensList || '-'}</td>
+      <td style="padding:10px 8px;white-space:nowrap">
+        <span style="display:inline-block;padding:4px 10px;border-radius:20px;font-size:0.73rem;font-weight:700;background:${sc.bg};color:${sc.color}">${sc.label}</span>
+        ${cancelInfo}
+      </td>
+      <td style="padding:10px 8px;white-space:nowrap;text-align:right">
+        <div style="font-size:0.95rem;font-weight:700;color:#1a1a2e">Gs ${(p.total_geral||0).toLocaleString('es-PY')}</div>
+        <div style="font-size:0.7rem;color:#aaa;margin-top:2px">${p.forma_pagamento || ''}</div>
+      </td>
+      <td style="padding:10px 8px;min-width:175px">
+        ${tlHtml}
+        ${totalTime !== '-' ? `<div style="margin-top:5px;padding:3px 7px;background:#f0f4ff;border-radius:6px;font-size:0.75rem;font-weight:700;color:#3a4db7;text-align:center">⏱ ${totalTime}</div>` : ''}
+      </td>
+    </tr>`;
   });
   if (!pedidos || pedidos.length === 0)
-    tbody.innerHTML =
-      '<tr><td colspan="7" style="text-align:center;padding:20px;color:#aaa">Nenhum pedido encontrado.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#aaa">Nenhum pedido encontrado.</td></tr>';
   const el = document.getElementById('rel-total-count');
   if (el) el.textContent = (pedidos || []).length + ' pedidos encontrados';
 }
@@ -1326,17 +1451,20 @@ function enviarRotaZap() {
       msg += `📦 *PEDIDO #${p.uid_temporal || p.id}*\n`;
       msg += `👤 ${p.cliente_nome} | 📞 ${p.cliente_telefone || ''}\n`;
 
-      // LÓGICA DE BEBIDAS 
       if (p.itens && Array.isArray(p.itens)) {
-        const bebidas = p.itens.filter((i) =>
-          /coca|fanta|energetico|milk|suco|sprite|guarana|agua|cerveja|refri/i.test(i.nome),
-        );
+        // Bebidas: categoria_slug === 'bebidas' (campo salvo a partir de agora)
+        // Fallback: campos abreviados n/q para pedidos antigos
+        const bebidas = p.itens.filter((i) => {
+          const cat = (i.categoria_slug || i.cat || '').toLowerCase();
+          return cat === 'bebidas' || cat.includes('bebida');
+        });
         if (bebidas.length > 0) {
-          msg += `🥤 *LEVAR:* ${bebidas.map((b) => `${b.qtd}x ${b.nome}`).join(', ')}\n`;
+          const lista = bebidas.map((b) => `${b.qtd || b.q || 1}x ${b.nome || b.n}`).join(', ');
+          msg += `🥤 *LEVAR:* ${lista}\n`;
         }
       }
 
-      // LÓGICA DE MAPA 
+      // LÓGICA DE MAPA
       if (p.geo_lat && p.geo_lng) {
         const link = `https://www.google.com/maps/search/?api=1&query=${p.geo_lat},${p.geo_lng}`;
         msg += `📍 ${link}\n`;
@@ -1429,9 +1557,8 @@ function filtrarProdutos(termo) {
     return;
   }
   const t = termo.toLowerCase();
-  const filtrados = _todosProdutos.filter(p =>
-    p.nome.toLowerCase().includes(t) ||
-    (p.categoria_slug || '').toLowerCase().includes(t)
+  const filtrados = _todosProdutos.filter(
+    (p) => p.nome.toLowerCase().includes(t) || (p.categoria_slug || '').toLowerCase().includes(t),
   );
   renderizarCardsProdutos(filtrados);
 }
@@ -1442,29 +1569,46 @@ function renderizarCardsProdutos(lista) {
   grid.innerHTML = '';
 
   if (!lista || lista.length === 0) {
-    grid.innerHTML = '<p style="color:#bbb;font-size:0.9rem;padding:20px 0">Nenhum produto encontrado.</p>';
+    grid.innerHTML =
+      '<p style="color:#bbb;font-size:0.9rem;padding:20px 0">Nenhum produto encontrado.</p>';
     return;
   }
 
   const _TIPO_ICONS = {
-    padrao:'📦', bebida:'🥤', lanche:'🍔', pizza:'🍕',
-    acai:'🍇', shake:'🥤', suco:'🍊', sorvete:'🍦',
-    montavel:'🥗', almoco:'🍽️', combo:'⭐'
+    padrao: '📦',
+    bebida: '🥤',
+    lanche: '🍔',
+    pizza: '🍕',
+    acai: '🍇',
+    shake: '🥤',
+    suco: '🍊',
+    sorvete: '🍦',
+    montavel: '🥗',
+    almoco: '🍽️',
+    combo: '⭐',
   };
   const _TIPO_NAMES = {
-    padrao:'Simples', bebida:'Bebida', lanche:'Lanche', pizza:'Pizza',
-    acai:'Açaí', shake:'Shake', suco:'Suco', sorvete:'Sorvete',
-    montavel:'Montável', almoco:'Prato', combo:'Combo'
+    padrao: 'Simples',
+    bebida: 'Bebida',
+    lanche: 'Lanche',
+    pizza: 'Pizza',
+    acai: 'Açaí',
+    shake: 'Shake',
+    suco: 'Suco',
+    sorvete: 'Sorvete',
+    montavel: 'Montável',
+    almoco: 'Prato',
+    combo: 'Combo',
   };
 
-  lista.forEach(p => {
+  lista.forEach((p) => {
     const cfg = p.montagem_config;
     let tipoKey = 'padrao';
     if (cfg && !Array.isArray(cfg) && cfg.__tipo) tipoKey = cfg.__tipo;
     else if (p.e_montavel || (cfg && Array.isArray(cfg) && cfg.length > 0)) tipoKey = 'montavel';
 
-    const tipoIcon  = _TIPO_ICONS[tipoKey]  || '📦';
-    const tipoName  = _TIPO_NAMES[tipoKey]  || tipoKey;
+    const tipoIcon = _TIPO_ICONS[tipoKey] || '📦';
+    const tipoName = _TIPO_NAMES[tipoKey] || tipoKey;
     const extrasQtd = cfg?.extras?.length || 0;
 
     const imgHtml = p.imagem_url
@@ -1472,8 +1616,11 @@ function renderizarCardsProdutos(lista) {
       : `<div class="produto-card-img-placeholder">${tipoIcon}</div>`;
 
     const badgePausado = !p.ativo ? `<span class="badge-pausado">⏸ Pausado</span>` : '';
-    const badgeBalcao  = p.somente_balcao ? `<span class="badge-balcao">🏪 Balcão</span>` : '';
-    const badgeExtras  = extrasQtd > 0 ? `<span title="${extrasQtd} adicionais" style="font-size:0.7rem;color:#3498db;font-weight:700">➕${extrasQtd}</span>` : '';
+    const badgeBalcao = p.somente_balcao ? `<span class="badge-balcao">🏪 Balcão</span>` : '';
+    const badgeExtras =
+      extrasQtd > 0
+        ? `<span title="${extrasQtd} adicionais" style="font-size:0.7rem;color:#3498db;font-weight:700">➕${extrasQtd}</span>`
+        : '';
 
     const pJson = JSON.stringify(p).replace(/'/g, '&apos;').replace(/"/g, '&quot;');
 
@@ -1566,14 +1713,18 @@ async function salvarProduto() {
     // Monta o config completo
     let configFinal = { __tipo: tipo };
 
-    const usaMontavel = ['montavel','acai','shake','suco'];
+    const usaMontavel = ['montavel', 'acai', 'shake', 'suco'];
     if (usaMontavel.includes(tipo)) {
       const etapas = [];
       document.querySelectorAll('.etapa-item').forEach((div) => {
         etapas.push({
           titulo: div.querySelector('.step-titulo').value,
           max: parseInt(div.querySelector('.step-max').value),
-          itens: div.querySelector('.step-itens').value.split(',').map((s) => s.trim()).filter((s) => s),
+          itens: div
+            .querySelector('.step-itens')
+            .value.split(',')
+            .map((s) => s.trim())
+            .filter((s) => s),
         });
       });
       configFinal.etapas = etapas;
@@ -1583,18 +1734,18 @@ async function salvarProduto() {
       const tamanhos = [];
       document.querySelectorAll('.pizza-tamanho-row').forEach((row) => {
         const pTrad = parseFloat(row.querySelector('[data-f="preco_tradicional"]')?.value) || 0;
-        const pEsp  = parseFloat(row.querySelector('[data-f="preco_especial"]')?.value) || 0;
+        const pEsp = parseFloat(row.querySelector('[data-f="preco_especial"]')?.value) || 0;
         const pDoce = parseFloat(row.querySelector('[data-f="preco_doce"]')?.value) || 0;
         tamanhos.push({
-          nome:               row.querySelector('[data-f="nome"]').value,
-          fatias:             parseInt(row.querySelector('[data-f="fatias"]').value) || 0,
-          cm:                 parseInt(row.querySelector('[data-f="cm"]').value) || 0,
-          preco_tradicional:  pTrad,
-          preco_especial:     pEsp,
-          preco_doce:         pDoce,
-          borda_preco:        parseFloat(row.querySelector('[data-f="borda_preco"]')?.value) || 0,
+          nome: row.querySelector('[data-f="nome"]').value,
+          fatias: parseInt(row.querySelector('[data-f="fatias"]').value) || 0,
+          cm: parseInt(row.querySelector('[data-f="cm"]').value) || 0,
+          preco_tradicional: pTrad,
+          preco_especial: pEsp,
+          preco_doce: pDoce,
+          borda_preco: parseFloat(row.querySelector('[data-f="borda_preco"]')?.value) || 0,
           // compatibilidade: preco = menor valor entre as categorias usadas
-          preco: Math.min(...[pTrad, pEsp, pDoce].filter(v => v > 0)) || pTrad,
+          preco: Math.min(...[pTrad, pEsp, pDoce].filter((v) => v > 0)) || pTrad,
         });
       });
       const sabores = [];
@@ -1602,14 +1753,14 @@ async function salvarProduto() {
         sabores.push({
           nome: row.querySelector('[data-f="snome"]').value,
           tipo: row.querySelector('[data-f="stipo"]').value,
-          img:  row.querySelector('[data-f="simg"]')?.value || '',
+          img: row.querySelector('[data-f="simg"]')?.value || '',
           preco: 0, // preço agora é definido por categoria no tamanho
         });
       });
       // Coleta lista de bordas
       const bordas = [];
       document.querySelectorAll('.pizza-borda-row').forEach((row) => {
-        const nome  = row.querySelector('[data-f="bnome"]').value.trim();
+        const nome = row.querySelector('[data-f="bnome"]').value.trim();
         const preco = parseFloat(row.querySelector('[data-f="bpreco"]').value) || 0;
         if (nome) bordas.push({ nome, preco });
       });
@@ -1621,8 +1772,8 @@ async function salvarProduto() {
           document.getElementById('pizza-tipo-doce').checked ? 'Doce' : null,
         ].filter(Boolean),
         tem_borda: bordas.length > 0,
-        bordas,                      // lista completa de bordas com nome+preco
-        borda_preco: bordas[0]?.preco || 0,  // compatibilidade retroativa
+        bordas, // lista completa de bordas com nome+preco
+        borda_preco: bordas[0]?.preco || 0, // compatibilidade retroativa
         tamanhos,
         sabores,
       };
@@ -1633,33 +1784,45 @@ async function salvarProduto() {
     if (temExtras) {
       const extras = [];
       document.querySelectorAll('.extra-row').forEach((row) => {
-        const n = row.querySelector('[data-f="enome"]').value;
-        const p = parseFloat(row.querySelector('[data-f="epreco"]').value) || 0;
+        const n = row.querySelector('[data-f="enome"]')?.value;
+        const p = parseFloat(row.querySelector('[data-f="epreco"]')?.value) || 0;
         if (n) extras.push({ nome: n, preco: p });
       });
       configFinal.extras = extras;
+    }
+
+    // Opções de Preparo
+    const temPreparo = document.getElementById('prod-tem-preparo')?.checked;
+    if (temPreparo) {
+      const preparoOpcoes = [];
+      document.querySelectorAll('.preparo-opcao-input').forEach(inp => {
+        const v = inp.value.trim();
+        if (v) preparoOpcoes.push(v);
+      });
+      if (preparoOpcoes.length > 0) configFinal.preparo_opcoes = preparoOpcoes;
     }
 
     // Variações de sabor
     if (tipo === 'variacoes') {
       const variacoes = [];
       document.querySelectorAll('.variacao-row').forEach((row) => {
-        const nome  = row.querySelector('[data-f="vnome"]').value.trim();
+        const nome = row.querySelector('[data-f="vnome"]').value.trim();
         const preco = parseFloat(row.querySelector('[data-f="vpreco"]').value) || 0;
-        const img   = row.querySelector('[data-f="vimg"]').value.trim() || '';
-        if (nome) variacoes.push({ nome, preco, img });
+        const img = row.querySelector('[data-f="vimg"]').value.trim() || '';
+        const ativoEl = row.querySelector('[data-f="vativo"]');
+        const ativo = ativoEl ? ativoEl.checked : true;
+        if (nome) variacoes.push({ nome, preco, img, ativo });
       });
       configFinal.variacoes = variacoes;
     }
 
-    // Compatibilidade retroativa: mantém montagem_config array para tipo montavel
+    // Compatibilidade retroativa: mantém e_montavel para indicar tipo
     const isM = usaMontavel.includes(tipo);
-    const montagemCompat = isM ? (configFinal.etapas || []) : [];
 
     // Para variações: preco = menor valor entre as variações (usado no "A partir de")
     let precoBase = parseFloat(document.getElementById('prod-preco').value) || 0;
     if (tipo === 'variacoes' && configFinal.variacoes && configFinal.variacoes.length > 0) {
-      const precos = configFinal.variacoes.map(v => v.preco).filter(p => p > 0);
+      const precos = configFinal.variacoes.map((v) => v.preco).filter((p) => p > 0);
       if (precos.length > 0) precoBase = Math.min(...precos);
     }
 
@@ -1671,7 +1834,7 @@ async function salvarProduto() {
       subcategoria_slug: document.getElementById('prod-subcat')?.value || null,
       imagem_url: urlFinal,
       e_montavel: isM,
-      montagem_config: isM ? montagemCompat : configFinal,  // novo: armazena config completo
+      montagem_config: configFinal, // salva config completo sempre (etapas + extras + preparo + __tipo)
       ativo: true,
       somente_balcao: document.getElementById('prod-somente-balcao')?.checked || false,
     };
@@ -1708,7 +1871,8 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
   document.getElementById('pizza-bordas-lista').innerHTML = '';
   document.getElementById('pizza-borda-preco-box').style.display = 'none';
   document.getElementById('pizza-tem-borda').checked = false;
-  document.getElementById('pizza-sabores-lista').innerHTML = '<p style="color:#aaa;font-size:0.82rem;text-align:center;margin:10px 0">Clique em "+ Sabor" para adicionar</p>';
+  document.getElementById('pizza-sabores-lista').innerHTML =
+    '<p style="color:#aaa;font-size:0.82rem;text-align:center;margin:10px 0">Clique em "+ Sabor" para adicionar</p>';
   const variacoesLista = document.getElementById('variacoes-lista');
   if (variacoesLista) variacoesLista.innerHTML = '';
   // CORREÇÃO: Limpa o file input para não reutilizar imagem anterior
@@ -1745,11 +1909,12 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
         document.getElementById('pizza-tipo-salgada').checked = (p.tipos || []).includes('Salgada');
         document.getElementById('pizza-tipo-doce').checked = (p.tipos || []).includes('Doce');
         // Carrega bordas (novo formato: lista; retrocompat: borda_preco único)
-        const bordas = p.bordas && p.bordas.length > 0
-          ? p.bordas
-          : p.tem_borda && p.borda_preco
-            ? [{ nome: 'Borda Recheada', preco: p.borda_preco }]
-            : [];
+        const bordas =
+          p.bordas && p.bordas.length > 0
+            ? p.bordas
+            : p.tem_borda && p.borda_preco
+              ? [{ nome: 'Borda Recheada', preco: p.borda_preco }]
+              : [];
         document.getElementById('pizza-tem-borda').checked = bordas.length > 0;
         document.getElementById('pizza-bordas-lista').innerHTML = '';
         toggleBordaPreco();
@@ -1775,6 +1940,16 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
         document.getElementById('extras-area').style.display = 'block';
         cfg.extras.forEach((ex) => addExtra(ex));
       }
+      // Opções de Preparo
+      const prepEl = document.getElementById('prod-tem-preparo');
+      const preparoArea = document.getElementById('preparo-area');
+      const preparoLista = document.getElementById('preparo-lista');
+      if (prepEl && cfg.preparo_opcoes && cfg.preparo_opcoes.length > 0) {
+        prepEl.checked = true;
+        if (preparoArea) preparoArea.style.display = 'block';
+        if (preparoLista) preparoLista.innerHTML = '';
+        cfg.preparo_opcoes.forEach(op => addOpcaoPreparo(op));
+      }
     } else if (cfg && Array.isArray(cfg)) {
       // Compatibilidade: array antigo = montavel
       tipo = 'montavel';
@@ -1799,8 +1974,8 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
   selecionarTipoBuilder(tipo);
 
   // CORREÇÃO: Carrega categorias com a categoria atual do produto já selecionada
-  const catAtual = produto ? (produto.categoria_slug || '') : '';
-  const subcatAtual = produto ? (produto.subcategoria_slug || '') : '';
+  const catAtual = produto ? produto.categoria_slug || '' : '';
+  const subcatAtual = produto ? produto.subcategoria_slug || '' : '';
   await carregarSelectCategorias(catAtual);
   await carregarSelectSubcategorias(catAtual, subcatAtual);
 
@@ -1809,22 +1984,37 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
 
 // Mapa: tipo semântico → qual builder exibir
 const BUILDER_MAP = {
-  padrao:'', bebida:'', lanche:'', combo:'', sorvete:'',
-  pizza:'builder-pizza',
-  montavel:'builder-montavel', acai:'builder-montavel',
-  shake:'builder-montavel', suco:'builder-montavel',
-  variacoes:'builder-variacoes',
+  padrao: '',
+  bebida: '',
+  lanche: '',
+  combo: '',
+  sorvete: '',
+  pizza: 'builder-pizza',
+  montavel: 'builder-montavel',
+  acai: 'builder-montavel',
+  shake: 'builder-montavel',
+  suco: 'builder-montavel',
+  variacoes: 'builder-variacoes',
 };
 const BUILDER_HINTS = {
-  acai:  '🍇 Crie etapas: "Tamanho", "Complementos", "Frutas", "Coberturas".',
+  acai: '🍇 Crie etapas: "Tamanho", "Complementos", "Frutas", "Coberturas".',
   shake: '🥤 Crie etapas: "Tamanho" e "Sabor base".',
-  suco:  '🍊 Crie etapas: "Fruta", "Tamanho" e "Adicionais".',
+  suco: '🍊 Crie etapas: "Fruta", "Tamanho" e "Adicionais".',
 };
 
 const _TIPO_BADGE_LABELS = {
-  padrao:'📦 Simples', bebida:'🥤 Bebida', lanche:'🍔 Lanche', pizza:'🍕 Pizza',
-  acai:'🍇 Açaí', shake:'🥤 Shake', suco:'🍊 Suco', sorvete:'🍦 Sorvete',
-  montavel:'🥗 Montável', almoco:'🍽️ Prato', combo:'⭐ Combo', variacoes:'🎨 Variações',
+  padrao: '📦 Simples',
+  bebida: '🥤 Bebida',
+  lanche: '🍔 Lanche',
+  pizza: '🍕 Pizza',
+  acai: '🍇 Açaí',
+  shake: '🥤 Shake',
+  suco: '🍊 Suco',
+  sorvete: '🍦 Sorvete',
+  montavel: '🥗 Montável',
+  almoco: '🍽️ Prato',
+  combo: '⭐ Combo',
+  variacoes: '🎨 Variações',
 };
 
 function selecionarTipoBuilder(tipo) {
@@ -1834,7 +2024,7 @@ function selecionarTipoBuilder(tipo) {
     btn.classList.toggle('active', btn.dataset.tipo === tipo);
   });
 
-  document.querySelectorAll('.builder-section').forEach((s) => s.style.display = 'none');
+  document.querySelectorAll('.builder-section').forEach((s) => (s.style.display = 'none'));
 
   const builderId = BUILDER_MAP[tipo];
   if (builderId) {
@@ -1852,13 +2042,14 @@ function selecionarTipoBuilder(tipo) {
     hintEl.textContent = msg;
     hintEl.style.display = msg ? 'block' : 'none';
     if (msg) {
-      hintEl.style.cssText = 'background:#fff8e1;border-left:4px solid #f59e0b;border-radius:6px;padding:10px 14px;font-size:0.82rem;color:#78350f;margin-top:8px;';
+      hintEl.style.cssText =
+        'background:#fff8e1;border-left:4px solid #f59e0b;border-radius:6px;padding:10px 14px;font-size:0.82rem;color:#78350f;margin-top:8px;';
     }
   }
 
   const lancheHint = document.getElementById('builder-lanche-hint');
   if (lancheHint) {
-    lancheHint.style.display = (tipo === 'lanche' || tipo === 'combo') ? 'block' : 'none';
+    lancheHint.style.display = tipo === 'lanche' || tipo === 'combo' ? 'block' : 'none';
   }
 }
 
@@ -1905,7 +2096,8 @@ function addVariacao(dados = {}) {
   const lista = document.getElementById('variacoes-lista');
   const row = document.createElement('div');
   row.className = 'variacao-row';
-  row.style.cssText = 'background:#fff;border:1px solid #e9d5ff;border-radius:10px;padding:12px;display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center';
+  const pausado = dados.ativo === false;
+  row.style.cssText = `background:${pausado ? '#fff5f5' : '#fff'};border:1px solid ${pausado ? '#fca5a5' : '#e9d5ff'};border-radius:10px;padding:12px;display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;opacity:${pausado ? '0.7' : '1'}`;
   row.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:6px">
       <input data-f="vnome" class="form-control" value="${dados.nome || ''}" placeholder="Nome da variação (ex: Salmon y Cream Cheese)" style="font-weight:600">
@@ -1914,6 +2106,10 @@ function addVariacao(dados = {}) {
         <input data-f="vpreco" type="number" class="form-control" value="${dados.preco || ''}" placeholder="Preço" style="max-width:140px">
       </div>
       <input data-f="vimg" class="form-control" value="${dados.img || ''}" placeholder="URL da foto (opcional — usa foto do produto por padrão)" style="font-size:0.8rem;color:#888">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.82rem;color:${pausado ? '#c0392b' : '#16a34a'}">
+        <input data-f="vativo" type="checkbox" ${!pausado ? 'checked' : ''} onchange="this.closest('.variacao-row').style.background=this.checked?'#fff':'#fff5f5';this.closest('.variacao-row').style.opacity=this.checked?'1':'0.7';this.closest('.variacao-row').style.borderColor=this.checked?'#e9d5ff':'#fca5a5';this.parentElement.style.color=this.checked?'#16a34a':'#c0392b';this.parentElement.lastChild.textContent=this.checked?' Disponível':' Pausado'">
+        <span>${pausado ? ' Pausado' : ' Disponível'}</span>
+      </label>
     </div>
     <div style="width:60px;height:60px;border-radius:8px;overflow:hidden;background:#f3f4f6;flex-shrink:0">
       ${dados.img ? `<img src="${dados.img}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:1.5rem">🖼</div>'}
@@ -1950,7 +2146,7 @@ function addPizzaTamanho(dados = {}) {
   row.className = 'pizza-tamanho-row';
   // Retrocompatibilidade: se veio só `preco` (formato antigo), usa como preco_tradicional
   const pTrad = dados.preco_tradicional ?? dados.preco ?? '';
-  const pEsp  = dados.preco_especial ?? '';
+  const pEsp = dados.preco_especial ?? '';
   const pDoce = dados.preco_doce ?? '';
   const pBorda = dados.borda_preco ?? '';
   row.innerHTML = `
@@ -1986,7 +2182,7 @@ async function uploadSaborImagem(fileInput, row) {
     const prev = row.querySelector('.pizza-sabor-img-preview');
     prev.src = data.publicUrl;
     prev.style.display = 'block';
-  } catch(e) {
+  } catch (e) {
     alert('Erro ao enviar imagem: ' + e.message);
   } finally {
     fileInput.disabled = false;
@@ -2005,7 +2201,7 @@ function addPizzaSabor(dados = {}) {
     <div class="pizza-sabor-main">
       <input data-f="snome" class="form-control" value="${dados.nome || ''}" placeholder="Nome do sabor (ex: Frango Catupiry)">
       <select data-f="stipo" class="form-control pizza-sabor-tipo">
-        <option value="Tradicional" ${(!dados.tipo || dados.tipo === 'Tradicional' || dados.tipo === 'Salgada') ? 'selected' : ''}>🍕 Tradicional</option>
+        <option value="Tradicional" ${!dados.tipo || dados.tipo === 'Tradicional' || dados.tipo === 'Salgada' ? 'selected' : ''}>🍕 Tradicional</option>
         <option value="Especial" ${dados.tipo === 'Especial' ? 'selected' : ''}>⭐ Especial</option>
         <option value="Doce" ${dados.tipo === 'Doce' ? 'selected' : ''}>🍫 Doce</option>
       </select>
@@ -2041,9 +2237,353 @@ function addExtra(dados = {}) {
   lista.appendChild(row);
 }
 
+// ── PREPARO ──────────────────────────────────
+function togglePreparo() {
+  const ativo = document.getElementById('prod-tem-preparo').checked;
+  document.getElementById('preparo-area').style.display = ativo ? 'block' : 'none';
+}
+
+function addOpcaoPreparo(valor = '') {
+  const lista = document.getElementById('preparo-lista');
+  const row = document.createElement('div');
+  row.className = 'extra-row preparo-row-admin';
+  row.innerHTML = `
+    <input class="form-control preparo-opcao-input" value="${valor}" placeholder="Ex: Salmão Flambado, Batata Frita">
+    <button class="btn btn-sm btn-danger" onclick="this.closest('.preparo-row-admin').remove()" title="Remover">✕</button>
+  `;
+  lista.appendChild(row);
+}
+
+// ── ADICIONAIS GLOBAIS ────────────────────────
+function addExtraGlobal(dados = {}) {
+  const lista = document.getElementById('extras-globais-lista');
+  const row = document.createElement('div');
+  row.className = 'extra-row';
+  row.style.marginBottom = '8px';
+  row.innerHTML = `
+    <input data-f="gnome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Shoyu Extra, Cream Cheese">
+    <input data-f="gpreco" type="number" class="form-control" value="${dados.preco || 0}" placeholder="Preço (0 = Grátis)">
+    <button class="btn btn-sm btn-danger" onclick="this.closest('.extra-row').remove()" title="Remover">✕</button>
+  `;
+  lista.appendChild(row);
+}
+
+async function salvarExtrasGlobais() {
+  const extras = [];
+  document.querySelectorAll('#extras-globais-lista .extra-row').forEach(row => {
+    const nome = row.querySelector('[data-f="gnome"]').value.trim();
+    const preco = parseFloat(row.querySelector('[data-f="gpreco"]').value) || 0;
+    if (nome) extras.push({ nome, preco });
+  });
+
+  const { error } = await supa.from('configuracoes').update({ extras_globais: extras }).eq('id', 1);
+  if (error) {
+    // Verifica se é erro de coluna não existente
+    if (error.message && (error.message.includes('extras_globais') || error.code === 'PGRST204' || error.code === '42703')) {
+      alert('⚠️ A coluna "extras_globais" não existe no banco de dados.');
+    } else {
+      alert('Erro ao salvar adicionais globais: ' + error.message);
+    }
+  } else {
+    alert('✅ Adicionais globais salvos com sucesso!');
+  }
+}
+
+async function carregarExtrasGlobaisAdmin() {
+  const lista = document.getElementById('extras-globais-lista');
+  if (!lista) return;
+  lista.innerHTML = '';
+  try {
+    const { data, error } = await supa.from('configuracoes').select('extras_globais').single();
+
+    // Se der erro de coluna não encontrada, apenas ignora
+    if (error) {
+      if (error.message && (error.message.includes('extras_globais') || error.code === 'PGRST204')) {
+        console.log('ℹ️ Coluna extras_globais não existe. Crie a coluna no banco para usar esta funcionalidade.');
+      } else {
+        console.warn('Erro ao carregar extras globais:', error.message);
+      }
+      return;
+    }
+
+    if (data?.extras_globais && Array.isArray(data.extras_globais)) {
+      data.extras_globais.forEach(ex => addExtraGlobal(ex));
+    }
+  } catch (e) { 
+    console.log('ℹ️ Extras globais não disponíveis:', e.message);
+  }
+}
+
 // =========================================
-// 8. PRODUTOS E CATEGORIAS (CORRIGIDO)
+// AVISAR ENCERRAMENTO DO DELIVERY
 // =========================================
+
+/**
+ * Grava na tabela `configuracoes` um timestamp de encerramento
+ * e um aviso visível para todos os clientes.
+ * 
+ * Na tabela configuracoes precisam existir os campos:
+ *   aviso_delivery  TEXT  (mensagem exibida no banner do site)
+ *   delivery_aberto BOOLEAN (controla se o delivery está habilitado)
+ */
+async function avisarEncerramentoDelivery() {
+  const modal = document.getElementById('modal-encerramento-delivery');
+  if (modal) {
+    modal.style.display = 'flex';
+    return;
+  }
+
+  // Cria o modal dinamicamente se não estiver no HTML
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-encerramento-delivery';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <h3 style="margin:0;font-size:1.1rem;color:#c0392b">🚫 Encerrar Delivery</h3>
+        <button onclick="this.closest('#modal-encerramento-delivery').remove()" 
+                style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#999">✕</button>
+      </div>
+
+      <p style="color:#555;font-size:0.9rem;margin-bottom:16px">
+        Isso vai <strong>fechar o delivery imediatamente</strong> e exibir um aviso para os clientes no site.
+      </p>
+
+      <label style="font-weight:600;font-size:0.85rem;color:#333;display:block;margin-bottom:6px">
+        Mensagem para os clientes (opcional):
+      </label>
+      <textarea id="aviso-encerramento-texto" rows="3"
+        style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:0.9rem;resize:vertical;box-sizing:border-box;margin-bottom:16px"
+        placeholder="Ex: Delivery encerrado por hoje. Voltamos amanhã às 18h! 🍣"></textarea>
+
+      <div style="display:flex;gap:10px">
+        <button onclick="this.closest('#modal-encerramento-delivery').remove()"
+                style="flex:1;padding:12px;background:#f5f5f5;color:#555;border:none;border-radius:8px;font-weight:600;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="_confirmarEncerramentoDelivery()"
+                style="flex:1;padding:12px;background:#e74c3c;color:white;border:none;border-radius:8px;font-weight:700;cursor:pointer">
+          🚫 Fechar Agora
+        </button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+}
+
+async function _confirmarEncerramentoDelivery() {
+  const texto = document.getElementById('aviso-encerramento-texto')?.value?.trim()
+    || 'Delivery encerrado por hoje. Obrigado! 🍣';
+
+  const { error } = await supa.from('configuracoes').update({
+    delivery_aberto: false,
+    aviso_delivery: texto,
+  }).eq('id', 1);
+
+  if (error) {
+    // Tenta com upsert se update falhou (configuracoes pode não ter a linha)
+    const { error: e2 } = await supa.from('configuracoes').upsert({
+      id: 1,
+      delivery_aberto: false,
+      aviso_delivery: texto,
+    });
+    if (e2) {
+      alert('Erro ao encerrar delivery: ' + e2.message +
+        '\n\n💡 Execute no Supabase:\nALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS delivery_aberto BOOLEAN DEFAULT true;\nALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS aviso_delivery TEXT DEFAULT \'\';');
+      return;
+    }
+  }
+
+  document.getElementById('modal-encerramento-delivery')?.remove();
+  alert('✅ Delivery encerrado! O aviso já está visível para os clientes.');
+
+  // Atualiza badge no painel se existir
+  const badge = document.getElementById('badge-delivery-status');
+  if (badge) {
+    badge.style.background = '#e74c3c';
+    badge.textContent = '🔴 Delivery Fechado';
+  }
+}
+
+async function reabrirDelivery() {
+  if (!confirm('Reabrir o delivery para novos pedidos?')) return;
+
+  const { error } = await supa.from('configuracoes').update({
+    delivery_aberto: true,
+    aviso_delivery: '',
+  }).eq('id', 1);
+
+  if (error) {
+    alert('Erro: ' + error.message);
+    return;
+  }
+
+  alert('✅ Delivery reaberto com sucesso!');
+
+  const badge = document.getElementById('badge-delivery-status');
+  if (badge) {
+    badge.style.background = '#27ae60';
+    badge.textContent = '🟢 Delivery Aberto';
+  }
+}
+
+// =========================================
+// ESTENDER HORÁRIO DE FUNCIONAMENTO
+// =========================================
+
+/**
+ * Abre um modal para adicionar minutos extras ao horário de hoje.
+ * Grava em configuracoes.horario_extra_hoje = { data: 'YYYY-MM-DD', minutos: N }
+ * O app.js deve ler este campo para calcular o horário real de fechamento.
+ * 
+ * Execute no Supabase:
+ *   ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS horario_extra_hoje JSONB DEFAULT NULL;
+ */
+function abrirModalEstenderHorario() {
+  const existente = document.getElementById('modal-estender-horario');
+  if (existente) { existente.style.display = 'flex'; return; }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-estender-horario';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:380px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <h3 style="margin:0;font-size:1.1rem;color:#2980b9">⏰ Estender Horário Hoje</h3>
+        <button onclick="this.closest('#modal-estender-horario').remove()"
+                style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#999">✕</button>
+      </div>
+
+      <p style="color:#555;font-size:0.88rem;margin-bottom:18px">
+        Adicione minutos extras ao horário de hoje. O site aceitará pedidos por mais tempo.
+      </p>
+
+      <label style="font-weight:600;font-size:0.85rem;color:#333;display:block;margin-bottom:10px">
+        Quantos minutos a mais?
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+        ${[15, 30, 45, 60, 90, 120].map(m => `
+          <button onclick="_selecionarMinutosExtra(${m}, this)"
+                  data-min="${m}"
+                  style="padding:10px 16px;border:2px solid #e0e0e0;border-radius:8px;background:#f8f9fa;font-weight:700;cursor:pointer;font-size:0.9rem;transition:all 0.15s">
+            +${m}min
+          </button>`).join('')}
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+        <label style="font-size:0.85rem;color:#666;white-space:nowrap">Ou digite:</label>
+        <input type="number" id="input-minutos-extra" min="1" max="480" placeholder="ex: 45"
+               oninput="document.querySelectorAll('[data-min]').forEach(b => b.style.background='#f8f9fa')"
+               style="flex:1;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:0.95rem;font-weight:700">
+        <span style="color:#666;font-size:0.85rem">min</span>
+      </div>
+
+      <div style="display:flex;gap:10px">
+        <button onclick="this.closest('#modal-estender-horario').remove()"
+                style="flex:1;padding:12px;background:#f5f5f5;color:#555;border:none;border-radius:8px;font-weight:600;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="_confirmarEstenderHorario()"
+                style="flex:1;padding:12px;background:#2980b9;color:white;border:none;border-radius:8px;font-weight:700;cursor:pointer">
+          ⏰ Confirmar
+        </button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+}
+
+function _selecionarMinutosExtra(min, btn) {
+  // Destaca o botão selecionado e limpa o input
+  document.querySelectorAll('[data-min]').forEach(b => {
+    b.style.background = '#f8f9fa';
+    b.style.borderColor = '#e0e0e0';
+    b.style.color = '#333';
+  });
+  btn.style.background = '#2980b9';
+  btn.style.borderColor = '#2980b9';
+  btn.style.color = '#fff';
+  const inp = document.getElementById('input-minutos-extra');
+  if (inp) inp.value = min;
+}
+
+async function _confirmarEstenderHorario() {
+  const inp = document.getElementById('input-minutos-extra');
+  const minutos = parseInt(inp?.value || '0');
+  if (!minutos || minutos < 1) {
+    alert('Escolha quantos minutos deseja adicionar.');
+    return;
+  }
+
+  const hoje = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  const { error } = await supa.from('configuracoes').update({
+    horario_extra_hoje: { data: hoje, minutos }
+  }).eq('id', 1);
+
+  if (error) {
+    const { error: e2 } = await supa.from('configuracoes').upsert({
+      id: 1,
+      horario_extra_hoje: { data: hoje, minutos }
+    });
+    if (e2) {
+      alert('Erro ao salvar: ' + e2.message +
+        '\n\n💡 Execute no Supabase:\nALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS horario_extra_hoje JSONB DEFAULT NULL;');
+      return;
+    }
+  }
+
+  document.getElementById('modal-estender-horario')?.remove();
+  alert(`✅ Horário estendido em +${minutos} minutos hoje!`);
+}
+
+async function removerExtensaoHorario() {
+  if (!confirm('Remover a extensão de horário de hoje?')) return;
+  await supa.from('configuracoes').update({ horario_extra_hoje: null }).eq('id', 1);
+  alert('✅ Extensão removida.');
+}
+
+// Carrega status do delivery no painel (chamado no DOMContentLoaded / showTab)
+async function carregarStatusDelivery() {
+  const badge = document.getElementById('badge-delivery-status');
+  if (!badge) return;
+  try {
+    const { data } = await supa.from('configuracoes')
+      .select('delivery_aberto, aviso_delivery, horario_extra_hoje')
+      .eq('id', 1).single();
+
+    if (!data) return;
+
+    if (data.delivery_aberto === false) {
+      badge.style.background = '#e74c3c';
+      badge.textContent = '🔴 Delivery Fechado';
+    } else {
+      badge.style.background = '#27ae60';
+      badge.textContent = '🟢 Delivery Aberto';
+    }
+
+    // Mostra extensão de horário se ativa hoje
+    const hoje = new Date().toISOString().split('T')[0];
+    const ext = data.horario_extra_hoje;
+    const badgeExt = document.getElementById('badge-horario-extra');
+    if (badgeExt) {
+      if (ext && ext.data === hoje && ext.minutos > 0) {
+        badgeExt.style.display = 'inline-block';
+        badgeExt.textContent = `⏰ +${ext.minutos}min hoje`;
+      } else {
+        badgeExt.style.display = 'none';
+      }
+    }
+  } catch (e) {
+    // Colunas ainda não existem — ignora silenciosamente
+  }
+}
 
 // --- CATEGORIAS ---
 async function carregarCategorias() {
@@ -2068,21 +2608,39 @@ async function carregarCategorias() {
     return;
   }
 
-  const paleta = ['#1a7a2e','#3498db','#2ecc71','#9b59b6','#e67e22','#1abc9c','#e74c3c','#f39c12','#34495e','#00b894'];
+  const paleta = [
+    '#FF441F',
+    '#3498db',
+    '#2ecc71',
+    '#9b59b6',
+    '#e67e22',
+    '#1abc9c',
+    '#e74c3c',
+    '#f39c12',
+    '#34495e',
+    '#00b894',
+  ];
 
   grid.innerHTML = '';
   data.forEach((c, idx) => {
     const cor = paleta[idx % paleta.length];
     const cJson = JSON.stringify(c).replace(/'/g, '&apos;').replace(/"/g, '&quot;');
-    const horarioBadge = c.hora_inicio && c.hora_fim
-      ? `<span class="cat-badge cat-badge-horario">🕐 ${c.hora_inicio} – ${c.hora_fim}</span>`
-      : `<span class="cat-badge cat-badge-sempre">✅ Sempre visível</span>`;
+    const horarioBadge =
+      c.hora_inicio && c.hora_fim
+        ? `<span class="cat-badge cat-badge-horario">🕐 ${c.hora_inicio} – ${c.hora_fim}</span>`
+        : `<span class="cat-badge cat-badge-sempre">✅ Sempre visível</span>`;
 
     const card = document.createElement('div');
     card.className = 'cat-card';
     card.style.borderTopColor = cor;
+    card.setAttribute('draggable', 'true');
+    card.setAttribute('data-cat-slug', c.slug);
+    card.setAttribute('data-cat-ordem', c.ordem);
     card.innerHTML = `
       <div class="cat-card-top">
+        <div class="cat-drag-handle" title="Arraste para reordenar" style="cursor:grab; padding:0 8px 0 2px; color:#bbb; font-size:1.2rem; display:flex; align-items:center; user-select:none;">
+          ⠿
+        </div>
         <div class="cat-card-icon" style="background:${cor}20;color:${cor}">
           <i class="fas fa-tag"></i>
         </div>
@@ -2108,7 +2666,147 @@ async function carregarCategorias() {
     grid.appendChild(card);
   });
 
+  // Inicializa drag & drop após renderizar
+  iniciarDragDropCategorias(grid);
+
   carregarSelectCategorias();
+}
+
+// =========================================
+// DRAG & DROP — REORDENAR CATEGORIAS
+// =========================================
+function iniciarDragDropCategorias(grid) {
+  let draggingEl = null;
+  let placeholder = null;
+
+  // Cria o placeholder visual
+  function criarPlaceholder() {
+    const ph = document.createElement('div');
+    ph.id = 'cat-drag-placeholder';
+    ph.style.cssText = `
+      border: 2px dashed #FF441F;
+      border-radius: 12px;
+      background: rgba(255,68,31,0.05);
+      min-height: 80px;
+      transition: all 0.15s ease;
+      opacity: 0.7;
+    `;
+    return ph;
+  }
+
+  grid.querySelectorAll('.cat-card').forEach((card) => {
+    card.addEventListener('dragstart', (e) => {
+      draggingEl = card;
+      placeholder = criarPlaceholder();
+      // Visual do card sendo arrastado
+      setTimeout(() => {
+        card.style.opacity = '0.4';
+        card.style.transform = 'scale(0.97)';
+      }, 0);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    card.addEventListener('dragend', async () => {
+      if (draggingEl) {
+        draggingEl.style.opacity = '1';
+        draggingEl.style.transform = '';
+      }
+      if (placeholder && placeholder.parentNode) placeholder.remove();
+      draggingEl = null;
+      placeholder = null;
+
+      // Salva nova ordem no banco
+      await salvarOrdemCategorias(grid);
+    });
+
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!draggingEl || draggingEl === card) return;
+
+      const rect = card.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+
+      if (placeholder.parentNode) placeholder.remove();
+
+      if (e.clientY < midY) {
+        grid.insertBefore(placeholder, card);
+      } else {
+        grid.insertBefore(placeholder, card.nextSibling);
+      }
+    });
+
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (!draggingEl || draggingEl === card) return;
+      if (placeholder && placeholder.parentNode) {
+        grid.insertBefore(draggingEl, placeholder);
+        placeholder.remove();
+      }
+    });
+  });
+
+  // Permite soltar no próprio grid (área vazia)
+  grid.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+  grid.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (draggingEl && placeholder?.parentNode) {
+      grid.insertBefore(draggingEl, placeholder);
+      placeholder.remove();
+    }
+  });
+}
+
+async function salvarOrdemCategorias(grid) {
+  const cards = grid.querySelectorAll('.cat-card[data-cat-slug]');
+  const updates = [];
+  cards.forEach((card, idx) => {
+    const slug = card.getAttribute('data-cat-slug');
+    if (slug) updates.push({ slug, ordem: idx + 1 });
+    // Atualiza badge visual imediatamente
+    const badge = card.querySelector('.cat-card-ordem');
+    if (badge) badge.textContent = `#${idx + 1}`;
+  });
+
+  if (updates.length === 0) return;
+
+  try {
+    // Atualiza todos em paralelo
+    await Promise.all(
+      updates.map(({ slug, ordem }) => supa.from('categorias').update({ ordem }).eq('slug', slug)),
+    );
+    console.log(
+      '✅ Ordem das categorias salva:',
+      updates.map((u) => `${u.slug}=${u.ordem}`).join(', '),
+    );
+
+    // Feedback visual sutil
+    const toastId = 'toast-ordem';
+    let toast = document.getElementById(toastId);
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = toastId;
+      toast.style.cssText = `
+        position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+        background:#27ae60; color:white; padding:10px 22px; border-radius:24px;
+        font-size:0.9rem; font-weight:600; z-index:9999;
+        box-shadow:0 4px 16px rgba(0,0,0,0.2);
+        animation: fadeInUp 0.3s ease;
+      `;
+      document.body.appendChild(toast);
+    }
+    toast.textContent = '✅ Ordem salva com sucesso!';
+    toast.style.display = 'block';
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => {
+      toast.style.display = 'none';
+    }, 2500);
+  } catch (err) {
+    console.error('Erro ao salvar ordem:', err);
+    alert('Erro ao salvar nova ordem. Tente novamente.');
+  }
 }
 
 // Carrega o Select no Modal de Produto
@@ -2164,7 +2862,9 @@ async function carregarSelectSubcategorias(categoriaSlag = '', valorAtual = '') 
     if (box) box.style.display = 'block';
 
     if (data && data.length > 0) {
-      data.forEach((s) => (sel.innerHTML += `<option value="${s.slug}">${s.nome_exibicao}</option>`));
+      data.forEach(
+        (s) => (sel.innerHTML += `<option value="${s.slug}">${s.nome_exibicao}</option>`),
+      );
       if (valorAtual) sel.value = valorAtual;
     }
   } catch (e) {
@@ -2206,7 +2906,8 @@ async function carregarSubcategorias(categoriaSlag) {
     if (!data || data.length === 0) {
       html += '<p style="color:#aaa;padding:10px 0">Nenhuma subcategoria criada ainda.</p>';
     } else {
-      html += '<table class="table"><thead><tr><th>Slug</th><th>Nome</th><th>Ordem</th><th></th></tr></thead><tbody>';
+      html +=
+        '<table class="table"><thead><tr><th>Slug</th><th>Nome</th><th>Ordem</th><th></th></tr></thead><tbody>';
       data.forEach((s) => {
         const sJson = JSON.stringify(s).replace(/'/g, '&apos;').replace(/"/g, '&quot;');
         html += `<tr>
@@ -2322,7 +3023,12 @@ async function salvarSubcat() {
 }
 
 async function deletarSubcat(slug) {
-  if (!confirm(`Deletar a subcategoria "${slug}"?\n\nOs produtos vinculados ficarão sem subcategoria.`)) return;
+  if (
+    !confirm(
+      `Deletar a subcategoria "${slug}"?\n\nOs produtos vinculados ficarão sem subcategoria.`,
+    )
+  )
+    return;
 
   // Desvincula produtos
   await supa.from('produtos').update({ subcategoria_slug: null }).eq('subcategoria_slug', slug);
@@ -2362,8 +3068,11 @@ function editarCategoria(c) {
 
 async function salvarCategoria() {
   const slugInput = document.getElementById('cat-slug');
-  const slug = slugInput.value.trim().toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
+  const slug = slugInput.value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos
     .replace(/[^a-z0-9\s_]/g, '')
     .replace(/\s+/g, '_');
   const nome = document.getElementById('cat-nome').value.trim();
@@ -2390,19 +3099,31 @@ async function salvarCategoria() {
 
     if (slugMudou) {
       // 1. Insere novo registro com o novo slug
-      const { error: insErr } = await supa.from('categorias').insert([{
-        slug,
-        nome_exibicao: nome,
-        ordem: ordemVal
-      }]);
-      if (insErr) { alert('Erro ao salvar: ' + insErr.message); return; }
+      const { error: insErr } = await supa.from('categorias').insert([
+        {
+          slug,
+          nome: nome,
+          nome_exibicao: nome,
+          ordem: ordemVal,
+        },
+      ]);
+      if (insErr) {
+        alert('Erro ao salvar: ' + insErr.message);
+        return;
+      }
 
       // 2. Migra todos os produtos do slug antigo para o novo
-      await supa.from('produtos').update({ categoria_slug: slug }).eq('categoria_slug', slugOriginal);
+      await supa
+        .from('produtos')
+        .update({ categoria_slug: slug })
+        .eq('categoria_slug', slugOriginal);
 
       // 3. Migra subcategorias (se existirem)
       try {
-        await supa.from('subcategorias').update({ categoria_slug: slug }).eq('categoria_slug', slugOriginal);
+        await supa
+          .from('subcategorias')
+          .update({ categoria_slug: slug })
+          .eq('categoria_slug', slugOriginal);
       } catch (_) {}
 
       // 4. Deleta o registro antigo
@@ -2411,12 +3132,14 @@ async function salvarCategoria() {
     } else {
       const { error } = await supa
         .from('categorias')
-        .update({ nome_exibicao: nome, ordem: ordemVal })
+        .update({ nome: nome, nome_exibicao: nome, ordem: ordemVal })
         .eq('slug', slugOriginal);
       erro = error;
     }
   } else {
-    const { error } = await supa.from('categorias').insert([{ slug, nome_exibicao: nome, ordem: ordemVal }]);
+    const { error } = await supa
+      .from('categorias')
+      .insert([{ slug, nome: nome, nome_exibicao: nome, ordem: ordemVal }]);
     erro = error;
   }
 
@@ -2512,7 +3235,9 @@ async function deletarCat(slug) {
     // Segundo: remove subcategorias vinculadas (se a tabela existir)
     try {
       await supa.from('subcategorias').delete().eq('categoria_slug', slug);
-    } catch (_) { /* tabela pode não existir ainda */ }
+    } catch (_) {
+      /* tabela pode não existir ainda */
+    }
 
     // Terceiro: deleta a categoria
     const { error } = await supa.from('categorias').delete().eq('slug', slug);
@@ -2755,40 +3480,127 @@ function _renderGradeSemanal(horariosSalvos = {}) {
   const container = document.getElementById('grade-semanal');
   if (!container) return;
   container.innerHTML = '';
+
+  const ICONES_DIA = {
+    seg: '☀️',
+    ter: '☀️',
+    qua: '☀️',
+    qui: '☀️',
+    sex: '🌟',
+    sab: '🎉',
+    dom: '🌙',
+  };
+
   DIAS_SEMANA.forEach(({ key, label }) => {
     const dia = horariosSalvos[key] || { fechado: false, turnos: [{ abre: '', fecha: '' }] };
     const fechado = dia.fechado === true;
     const turnos = dia.turnos && dia.turnos.length > 0 ? dia.turnos : [{ abre: '', fecha: '' }];
 
     const row = document.createElement('div');
-    row.className = 'dia-row';
+    row.className = `gs-dia-card ${fechado ? 'gs-fechado' : 'gs-aberto'}`;
     row.dataset.dia = key;
 
-    let turnosHtml = turnos.map((t, i) => `
-      <div class="turno-row" data-idx="${i}">
-        <span class="turno-sep">${i > 0 ? 'e das' : 'das'}</span>
-        <input type="time" class="form-control turno-abre" value="${t.abre || ''}" style="width:110px">
-        <span class="turno-sep">às</span>
-        <input type="time" class="form-control turno-fecha" value="${t.fecha || ''}" style="width:110px">
-        ${i > 0 ? `<button class="btn-rm-turno" onclick="removerTurno(this)" title="Remover turno">✕</button>` : ''}
-      </div>`).join('');
+    let turnosHtml = turnos
+      .map(
+        (t, i) => `
+      <div class="gs-turno-row" data-idx="${i}">
+        <span class="gs-turno-label">${i === 0 ? '🕐 Abertura' : '🕑 2º Turno'}</span>
+        <div class="gs-turno-inputs">
+          <div class="gs-time-group">
+            <span class="gs-time-label">Das</span>
+            <input type="time" class="gs-time-input turno-abre" value="${t.abre || ''}">
+          </div>
+          <span class="gs-time-sep">→</span>
+          <div class="gs-time-group">
+            <span class="gs-time-label">Até</span>
+            <input type="time" class="gs-time-input turno-fecha" value="${t.fecha || ''}">
+          </div>
+          ${i > 0 ? `<button class="gs-btn-rm" onclick="removerTurno(this)" title="Remover turno">✕</button>` : '<div style="width:28px"></div>'}
+        </div>
+      </div>`,
+      )
+      .join('');
 
     row.innerHTML = `
-      <div class="dia-row-header">
-        <label class="dia-toggle">
-          <input type="checkbox" class="dia-fechado-check" ${fechado ? 'checked' : ''} onchange="toggleDiaFechado(this)">
-          <span class="dia-toggle-slider"></span>
-        </label>
-        <span class="dia-nome">${label}</span>
-        <span class="dia-status-text">${fechado ? '<span style="color:#e74c3c">Fechado</span>' : '<span style="color:#27ae60">Aberto</span>'}</span>
+      <div class="gs-dia-header">
+        <div class="gs-dia-info">
+          <span class="gs-dia-icone">${ICONES_DIA[key] || '📅'}</span>
+          <span class="gs-dia-nome">${label}</span>
+        </div>
+        <div class="gs-dia-controls">
+          <span class="gs-status-badge ${fechado ? 'gs-badge-fechado' : 'gs-badge-aberto'}">
+            ${fechado ? '🔴 Fechado' : '🟢 Aberto'}
+          </span>
+          <label class="gs-toggle-wrap">
+            <input type="checkbox" class="dia-fechado-check" ${fechado ? 'checked' : ''} onchange="toggleDiaFechado(this)">
+            <span class="gs-toggle-slider"></span>
+          </label>
+        </div>
       </div>
-      <div class="dia-turnos" style="${fechado ? 'display:none' : ''}">
-        <div class="turnos-lista">${turnosHtml}</div>
-        <button class="btn-add-turno" onclick="adicionarTurno(this)">+ 2º turno</button>
+      <div class="gs-dia-turnos" style="${fechado ? 'display:none' : ''}">
+        <div class="gs-turnos-lista">${turnosHtml}</div>
+        <button class="gs-btn-add-turno btn-add-turno" onclick="adicionarTurno(this)">
+          <i class="fas fa-plus"></i> Adicionar 2º turno
+        </button>
       </div>
     `;
     container.appendChild(row);
   });
+}
+
+function toggleDiaFechado(checkbox) {
+  const row = checkbox.closest('.gs-dia-card');
+  const turnos = row.querySelector('.gs-dia-turnos');
+  const badge = row.querySelector('.gs-status-badge');
+  if (checkbox.checked) {
+    if (turnos) turnos.style.display = 'none';
+    row.classList.add('gs-fechado');
+    row.classList.remove('gs-aberto');
+    if (badge) {
+      badge.textContent = '🔴 Fechado';
+      badge.className = 'gs-status-badge gs-badge-fechado';
+    }
+  } else {
+    if (turnos) turnos.style.display = '';
+    row.classList.add('gs-aberto');
+    row.classList.remove('gs-fechado');
+    if (badge) {
+      badge.textContent = '🟢 Aberto';
+      badge.className = 'gs-status-badge gs-badge-aberto';
+    }
+  }
+}
+
+function adicionarTurno(btn) {
+  const lista = btn.previousElementSibling;
+  const idx = lista.querySelectorAll('.gs-turno-row').length;
+  if (idx >= 2) {
+    alert('Máximo de 2 turnos por dia.');
+    return;
+  }
+  const div = document.createElement('div');
+  div.className = 'gs-turno-row';
+  div.dataset.idx = idx;
+  div.innerHTML = `
+    <span class="gs-turno-label">🕑 2º Turno</span>
+    <div class="gs-turno-inputs">
+      <div class="gs-time-group">
+        <span class="gs-time-label">Das</span>
+        <input type="time" class="gs-time-input turno-abre">
+      </div>
+      <span class="gs-time-sep">→</span>
+      <div class="gs-time-group">
+        <span class="gs-time-label">Até</span>
+        <input type="time" class="gs-time-input turno-fecha">
+      </div>
+      <button class="gs-btn-rm btn-rm-turno" onclick="removerTurno(this)" title="Remover turno">✕</button>
+    </div>
+  `;
+  lista.appendChild(div);
+}
+
+function removerTurno(btn) {
+  btn.closest('.gs-turno-row').remove();
 }
 
 function toggleDiaFechado(checkbox) {
@@ -2807,7 +3619,10 @@ function toggleDiaFechado(checkbox) {
 function adicionarTurno(btn) {
   const lista = btn.previousElementSibling;
   const idx = lista.querySelectorAll('.turno-row').length;
-  if (idx >= 2) { alert('Máximo de 2 turnos por dia.'); return; }
+  if (idx >= 2) {
+    alert('Máximo de 2 turnos por dia.');
+    return;
+  }
   const div = document.createElement('div');
   div.className = 'turno-row';
   div.dataset.idx = idx;
@@ -2827,16 +3642,19 @@ function removerTurno(btn) {
 
 function _lerGradeSemanal() {
   const horarios = {};
-  document.querySelectorAll('.dia-row').forEach((row) => {
+  document.querySelectorAll('.gs-dia-card').forEach((row) => {
     const key = row.dataset.dia;
     const fechado = row.querySelector('.dia-fechado-check').checked;
     const turnos = [];
-    row.querySelectorAll('.turno-row').forEach((t) => {
+    row.querySelectorAll('.gs-turno-row').forEach((t) => {
       const abre = t.querySelector('.turno-abre').value;
       const fecha = t.querySelector('.turno-fecha').value;
       if (abre || fecha) turnos.push({ abre, fecha });
     });
-    horarios[key] = { fechado, turnos: fechado ? [] : (turnos.length ? turnos : [{ abre: '', fecha: '' }]) };
+    horarios[key] = {
+      fechado,
+      turnos: fechado ? [] : turnos.length ? turnos : [{ abre: '', fecha: '' }],
+    };
   });
   return horarios;
 }
@@ -2883,9 +3701,12 @@ async function carregarConfiguracoes() {
   const corPicker = document.getElementById('cfg-cor-primaria');
   const corHex = document.getElementById('cfg-cor-primaria-hex');
   if (corPicker && corHex) {
-    corPicker.addEventListener('input', (e) => { corHex.value = e.target.value; });
+    corPicker.addEventListener('input', (e) => {
+      corHex.value = e.target.value;
+    });
     corHex.addEventListener('input', (e) => {
-      if (e.target.value.startsWith('#') && e.target.value.length === 7) corPicker.value = e.target.value;
+      if (e.target.value.startsWith('#') && e.target.value.length === 7)
+        corPicker.value = e.target.value;
     });
   }
 
@@ -2895,6 +3716,18 @@ async function carregarConfiguracoes() {
     const boxIcone = document.getElementById('cfg-icone-preview-box');
     if (prevIcone) prevIcone.src = data.icone_url;
     if (boxIcone) boxIcone.style.display = 'block';
+  }
+
+  // Carrega adicionais globais
+  await carregarExtrasGlobaisAdmin();
+
+  // Carrega tabela de frete e combustível
+  _renderTabelaFrete(data.tabela_frete || null);
+  const combEl = document.getElementById('cfg-combustivel');
+  if (combEl) {
+    const saved = data.ajuda_combustivel ?? 20000;
+    combEl.value = saved;
+    AJUDA_COMBUSTIVEL = saved;
   }
 }
 
@@ -2996,6 +3829,84 @@ function previewIcone(input) {
     if (box) box.style.display = 'block';
   };
   reader.readAsDataURL(input.files[0]);
+}
+
+// =========================================================
+// TABELA DE FRETE
+// =========================================================
+const FRETE_FAIXAS = [
+  { label: '0 – 3 km',      max: 3.0  },
+  { label: '3,1 – 4 km',    max: 4.0  },
+  { label: '4,1 – 5 km',    max: 5.0  },
+  { label: '5,1 – 6 km',    max: 6.0  },
+  { label: '6,1 – 7 km',    max: 7.0  },
+  { label: '7,1 – 8 km',    max: 8.0  },
+  { label: '8,1 – 9 km',    max: 9.0  },
+  { label: '9,1 – 10 km',   max: 10.0 },
+  { label: '10,1 – 11 km',  max: 11.0 },
+  { label: '11,1 – 12 km',  max: 12.0 },
+  { label: '12,1 – 13 km',  max: 13.0 },
+  { label: '13,1 – 14 km',  max: 14.0 },
+  { label: '14,1 – 15 km',  max: 15.0 },
+  { label: '15,1 – 16 km',  max: 16.0 },
+  { label: '16,1 – 17 km',  max: 17.0 },
+  { label: '17,1 – 18 km',  max: 18.0 },
+  { label: '18,1 – 19 km',  max: 19.0 },
+  { label: '19,1 – 20 km',  max: 20.0 },
+];
+
+function _renderTabelaFrete(savedData) {
+  const tbody = document.getElementById('tabela-frete-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  FRETE_FAIXAS.forEach((faixa, idx) => {
+    const saved = (savedData && savedData[idx]) || {};
+    const valLoja   = saved.loja   ?? '';
+    const valMoto   = saved.motoboy ?? '';
+    const bg = idx % 2 === 0 ? '#fff' : '#f9f9f9';
+    tbody.innerHTML += `
+      <tr style="background:${bg}">
+        <td style="padding:8px;font-weight:600;white-space:nowrap">${faixa.label}</td>
+        <td style="padding:8px;text-align:center">
+          <input type="number" class="form-control frete-loja" data-idx="${idx}"
+                 value="${valLoja}" placeholder="0" min="0" step="1000"
+                 style="text-align:center;max-width:130px;margin:0 auto;border:1.5px solid #2980b9">
+        </td>
+        <td style="padding:8px;text-align:center">
+          <input type="number" class="form-control frete-motoboy" data-idx="${idx}"
+                 value="${valMoto}" placeholder="0" min="0" step="1000"
+                 style="text-align:center;max-width:130px;margin:0 auto;border:1.5px solid #27ae60">
+        </td>
+      </tr>`;
+  });
+}
+
+async function salvarTabelaFrete() {
+  const tabela = [];
+  FRETE_FAIXAS.forEach((_, idx) => {
+    const loja   = parseInt(document.querySelector(`.frete-loja[data-idx="${idx}"]`)?.value)   || 0;
+    const motoboy = parseInt(document.querySelector(`.frete-motoboy[data-idx="${idx}"]`)?.value) || 0;
+    tabela.push({ loja, motoboy });
+  });
+
+  const novoCombus = parseInt(document.getElementById('cfg-combustivel')?.value) || 0;
+  AJUDA_COMBUSTIVEL = novoCombus;
+
+  const { error } = await supa.from('configuracoes').update({ tabela_frete: tabela, ajuda_combustivel: novoCombus }).gt('id', 0);
+  if (error) {
+    if (error.code === '42703' || (error.message && (error.message.includes('tabela_frete') || error.message.includes('ajuda_combustivel')))) {
+      alert(
+        '⚠️ A coluna "tabela_frete" ainda não existe no banco.\n\n' +
+        'Execute no Supabase SQL Editor:\n\n' +
+        'ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS tabela_frete JSONB DEFAULT NULL;\n' +
+        'ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ajuda_combustivel INTEGER DEFAULT 20000;'
+      );
+    } else {
+      alert('Erro ao salvar tabela de frete: ' + error.message);
+    }
+    return;
+  }
+  alert('✅ Tabela de frete salva com sucesso!');
 }
 
 async function salvarPersonalizacao() {
@@ -3101,12 +4012,12 @@ async function carregarRankingProdutos() {
 
   let query = supa.from('pedidos').select('itens').eq('status', 'entregue');
   if (inicio) query = query.gte('created_at', inicio);
-  if (fim)    query = query.lte('created_at', fim);
+  if (fim) query = query.lte('created_at', fim);
   const { data } = await query;
 
   const cnt = {};
-  (data || []).forEach(ped => {
-    (Array.isArray(ped.itens) ? ped.itens : []).forEach(item => {
+  (data || []).forEach((ped) => {
+    (Array.isArray(ped.itens) ? ped.itens : []).forEach((item) => {
       const n = item.nome || item.n || 'Produto';
       const q = parseInt(item.qtd || item.q || 1);
       cnt[n] = (cnt[n] || 0) + q;
@@ -3114,17 +4025,21 @@ async function carregarRankingProdutos() {
   });
   const ranking = Object.entries(cnt)
     .map(([nome, v]) => ({ nome, v }))
-    .sort((a, b) => b.v - a.v).slice(0, 8);
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 8);
 
   const el = document.getElementById('ranking-produtos-list');
   if (!el) return;
-  if (!ranking.length) { el.innerHTML = '<div class="rank-vazio">Nenhuma venda no período</div>'; return; }
+  if (!ranking.length) {
+    el.innerHTML = '<div class="rank-vazio">Nenhuma venda no período</div>';
+    return;
+  }
   el.innerHTML = '';
   const max = ranking[0].v;
   ranking.forEach((p, i) => {
     const pct = Math.round((p.v / max) * 100);
     el.innerHTML += `<div class="rank-item">
-      <div class="rank-pos rank-pos-${i+1}">${i+1}</div>
+      <div class="rank-pos rank-pos-${i + 1}">${i + 1}</div>
       <div class="rank-info">
         <div class="rank-name">${p.nome}</div>
         <div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%"></div></div>
@@ -3144,15 +4059,18 @@ async function carregarRankingClientes() {
   if (customBox) customBox.style.display = periodo === 'custom' ? 'flex' : 'none';
   const { inicio, fim } = _calcularIntervalo(periodo, 'rank-cli-inicio', 'rank-cli-fim');
 
-  let query = supa.from('pedidos')
+  let query = supa
+    .from('pedidos')
     .select('cliente_nome, cliente_telefone, total_geral')
-    .eq('status', 'entregue').order('created_at', { ascending: false }).limit(1000);
+    .eq('status', 'entregue')
+    .order('created_at', { ascending: false })
+    .limit(1000);
   if (inicio) query = query.gte('created_at', inicio);
-  if (fim)    query = query.lte('created_at', fim);
+  if (fim) query = query.lte('created_at', fim);
   const { data } = await query;
 
   const map = {};
-  (data || []).forEach(p => {
+  (data || []).forEach((p) => {
     const nomeLimpo = (p.cliente_nome || '').replace(/^MESA\s+\d+\s*-\s*/i, '').trim() || 'Cliente';
     const tel = (p.cliente_telefone || '').trim();
     if (nomeLimpo === 'Cliente' && tel.length < 5) return;
@@ -3163,16 +4081,21 @@ async function carregarRankingClientes() {
     map[key].total += p.total_geral || 0;
   });
 
-  const top = Object.values(map).sort((a, b) => b.qtd - a.qtd).slice(0, 8);
+  const top = Object.values(map)
+    .sort((a, b) => b.qtd - a.qtd)
+    .slice(0, 8);
   const el = document.getElementById('ranking-clientes-list');
   if (!el) return;
-  if (!top.length) { el.innerHTML = '<div class="rank-vazio">Nenhum cliente no período</div>'; return; }
+  if (!top.length) {
+    el.innerHTML = '<div class="rank-vazio">Nenhum cliente no período</div>';
+    return;
+  }
   el.innerHTML = '';
   const max = top[0].qtd;
   top.forEach((c, i) => {
     const pct = Math.round((c.qtd / max) * 100);
     el.innerHTML += `<div class="rank-item">
-      <div class="rank-pos rank-pos-${i+1}">${i+1}</div>
+      <div class="rank-pos rank-pos-${i + 1}">${i + 1}</div>
       <div class="rank-info">
         <div class="rank-name">${c.nome}</div>
         ${c.tel ? `<div class="rank-sub"><i class="fas fa-phone"></i> ${c.tel}</div>` : ''}
@@ -3186,22 +4109,25 @@ async function carregarRankingClientes() {
 // Utilitário: datas para os rankings
 function _calcularIntervalo(periodo, idI, idF) {
   const now = new Date();
-  let inicio = null, fim = null;
+  let inicio = null,
+    fim = null;
   if (periodo === 'hoje') {
     inicio = now.toISOString().split('T')[0] + 'T00:00:00';
   } else if (periodo === '7') {
-    const d = new Date(now); d.setDate(d.getDate()-7);
+    const d = new Date(now);
+    d.setDate(d.getDate() - 7);
     inicio = d.toISOString().split('T')[0] + 'T00:00:00';
   } else if (periodo === '30') {
-    const d = new Date(now); d.setDate(d.getDate()-30);
+    const d = new Date(now);
+    d.setDate(d.getDate() - 30);
     inicio = d.toISOString().split('T')[0] + 'T00:00:00';
   } else if (periodo === 'mes') {
-    inicio = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01T00:00:00`;
+    inicio = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01T00:00:00`;
   } else if (periodo === 'custom') {
     const elI = document.getElementById(idI);
     const elF = document.getElementById(idF);
     if (elI?.value) inicio = elI.value + 'T00:00:00';
-    if (elF?.value) fim    = elF.value + 'T23:59:59';
+    if (elF?.value) fim = elF.value + 'T23:59:59';
   }
   return { inicio, fim };
 }
@@ -3210,32 +4136,78 @@ function _calcularIntervalo(periodo, idI, idF) {
 // PDV MOBILE — Tabs de navegação
 // ══════════════════════════════════════════════════════════
 function pdvMudarAba(aba, btn) {
-  document.querySelectorAll('.pdv-tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.pdv-tab-btn').forEach((b) => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  const map = { carrinho:'.pdv-carrinho', produtos:'.pdv-produtos', monitor:'.pdv-monitor' };
-  Object.values(map).forEach(sel => {
+  // No mobile, os painéis são os próprios elements dentro do pdv-panel-venda
+  const map = { carrinho: '.pdv-carrinho', produtos: '.pdv-produtos', monitor: '.pdv-monitor' };
+  Object.values(map).forEach((sel) => {
     const el = document.querySelector(sel);
     if (el) el.classList.remove('pdv-tab-active');
   });
   const target = document.querySelector(map[aba]);
   if (target) target.classList.add('pdv-tab-active');
+
+  // Se clicou em monitor, mostra o panel de mesas no mobile
+  if (aba === 'monitor') {
+    const panelMesas = document.getElementById('pdv-panel-mesas');
+    const panelVenda = document.getElementById('pdv-panel-venda');
+    if (panelMesas) panelMesas.style.display = 'block';
+    if (panelVenda) panelVenda.style.display = 'none';
+  } else {
+    const panelMesas = document.getElementById('pdv-panel-mesas');
+    const panelVenda = document.getElementById('pdv-panel-venda');
+    if (panelMesas) panelMesas.style.display = 'none';
+    if (panelVenda) panelVenda.style.display = 'block';
+  }
+}
+
+function pdvMudarView(view) {
+  const panelVenda = document.getElementById('pdv-panel-venda');
+  const panelMesas = document.getElementById('pdv-panel-mesas');
+  const btnVenda = document.getElementById('pdv-view-btn-venda');
+  const btnMesas = document.getElementById('pdv-view-btn-mesas');
+  if (view === 'venda') {
+    if (panelVenda) panelVenda.style.display = 'block';
+    if (panelMesas) panelMesas.style.display = 'none';
+    if (btnVenda) btnVenda.classList.add('active');
+    if (btnMesas) btnMesas.classList.remove('active');
+  } else {
+    if (panelVenda) panelVenda.style.display = 'none';
+    if (panelMesas) panelMesas.style.display = 'block';
+    if (btnVenda) btnVenda.classList.remove('active');
+    if (btnMesas) btnMesas.classList.add('active');
+    carregarMonitorMesas();
+  }
 }
 
 function pdvIniciarTabs() {
   const isMobile = window.innerWidth <= 768;
   const tabsEl = document.getElementById('pdv-tabs');
-  if (!tabsEl) return;
+  const footer = document.getElementById('pdv-mobile-footer');
+  const headerBar = document.querySelector('.pdv-header-bar .pdv-view-btns');
+
   if (isMobile) {
-    tabsEl.style.display = 'flex';
-    document.querySelectorAll('.pdv-tab-btn').forEach(b => b.classList.remove('active'));
-    const btnCardapio = tabsEl.querySelector('.pdv-tab-btn:nth-child(2)');
-    if (btnCardapio) { btnCardapio.classList.add('active'); pdvMudarAba('produtos', null); }
+    if (tabsEl) tabsEl.style.display = 'flex';
+    if (footer) footer.style.display = 'flex';
+    if (headerBar) headerBar.style.display = 'none';
+    // Mobile começa mostrando o cardápio
+    document.querySelectorAll('.pdv-tab-btn').forEach((b) => b.classList.remove('active'));
+    const btnCardapio = tabsEl ? tabsEl.querySelector('.pdv-tab-btn:nth-child(1)') : null;
+    if (btnCardapio) {
+      btnCardapio.classList.add('active');
+    }
+    pdvMudarAba('produtos', null);
   } else {
-    tabsEl.style.display = 'none';
-    ['.pdv-carrinho','.pdv-produtos','.pdv-monitor'].forEach(sel => {
+    if (tabsEl) tabsEl.style.display = 'none';
+    if (footer) footer.style.display = 'none';
+    if (headerBar) headerBar.style.display = 'flex';
+    // Desktop: mostra produtos e carrinho sempre
+    ['.pdv-carrinho', '.pdv-produtos'].forEach((sel) => {
       const el = document.querySelector(sel);
       if (el) el.classList.add('pdv-tab-active');
     });
+    const panelVenda = document.getElementById('pdv-panel-venda');
+    if (panelVenda) panelVenda.style.display = 'block';
   }
 }
 
@@ -3283,12 +4255,72 @@ async function carregarPDV() {
 
 let produtosCatsPDV = [];
 
-function renderizarGridPDV() {
+let _pdvCatFiltro = 'todos';
+
+function renderizarGridPDV(filtroNome = '') {
   const grid = document.getElementById('pdv-grid');
   if (!grid) return;
   grid.innerHTML = '';
 
-  // Agrupa produtos por categoria
+  // Gera chips de categoria
+  const filterBar = document.getElementById('pdv-cat-filter');
+  if (filterBar) {
+    filterBar.innerHTML = '';
+    const allChip = document.createElement('button');
+    allChip.className = `pdv-cat-chip${_pdvCatFiltro === 'todos' ? ' active' : ''}`;
+    allChip.textContent = 'TODOS';
+    allChip.onclick = () => {
+      _pdvCatFiltro = 'todos';
+      renderizarGridPDV(document.getElementById('pdv-busca')?.value || '');
+    };
+    filterBar.appendChild(allChip);
+
+    const slugsUsados = [...new Set(produtosCachePDV.map((p) => p.categoria_slug).filter(Boolean))];
+    const ordemCats = produtosCatsPDV.map((c) => c.slug);
+    slugsUsados.sort((a, b) => {
+      const ia = ordemCats.indexOf(a),
+        ib = ordemCats.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+    slugsUsados.forEach((slug) => {
+      const catInfo = produtosCatsPDV.find((c) => c.slug === slug);
+      const chip = document.createElement('button');
+      chip.className = `pdv-cat-chip${_pdvCatFiltro === slug ? ' active' : ''}`;
+      chip.textContent = (catInfo?.nome_exibicao || slug).toUpperCase();
+      chip.onclick = () => {
+        _pdvCatFiltro = slug;
+        renderizarGridPDV(document.getElementById('pdv-busca')?.value || '');
+      };
+      filterBar.appendChild(chip);
+    });
+  }
+
+  // Filtra produtos
+  const query = filtroNome.toLowerCase().trim();
+  let produtos = produtosCachePDV.filter((p) => {
+    if (_pdvCatFiltro !== 'todos' && p.categoria_slug !== _pdvCatFiltro) return false;
+    if (query && !p.nome.toLowerCase().includes(query)) return false;
+    return true;
+  });
+
+  if (_pdvCatFiltro !== 'todos' || query) {
+    // Flat grid sem cabeçalhos de categoria
+    const row = document.createElement('div');
+    row.className = 'pdv-cat-row';
+    produtos.forEach((p) => {
+      row.appendChild(_criarCardPDV(p));
+    });
+    if (produtos.length === 0) {
+      row.innerHTML = `<p style="color:#aaa;grid-column:1/-1;text-align:center;padding:20px">Nenhum produto encontrado</p>`;
+    }
+    grid.appendChild(row);
+    return;
+  }
+
+  // Agrupa por categoria
   const porCategoria = {};
   produtosCachePDV.forEach((p) => {
     const cat = p.categoria_slug || 'outros';
@@ -3296,11 +4328,10 @@ function renderizarGridPDV() {
     porCategoria[cat].push(p);
   });
 
-  // Ordena categorias pela ordem definida
   const ordemCats = produtosCatsPDV.map((c) => c.slug);
   const slugsOrdenados = Object.keys(porCategoria).sort((a, b) => {
-    const ia = ordemCats.indexOf(a);
-    const ib = ordemCats.indexOf(b);
+    const ia = ordemCats.indexOf(a),
+      ib = ordemCats.indexOf(b);
     if (ia === -1 && ib === -1) return a.localeCompare(b);
     if (ia === -1) return 1;
     if (ib === -1) return -1;
@@ -3311,39 +4342,269 @@ function renderizarGridPDV() {
     const catInfo = produtosCatsPDV.find((c) => c.slug === slug);
     const catNome = catInfo ? catInfo.nome_exibicao : slug;
 
-    // Título da categoria — usa classe CSS
     const h = document.createElement('div');
     h.className = 'pdv-cat-header';
     h.textContent = catNome;
     grid.appendChild(h);
 
-    // Row de cards — usa classe CSS
     const row = document.createElement('div');
     row.className = 'pdv-cat-row';
-
-    porCategoria[slug].forEach((p) => {
-      const img = p.imagem_url || 'https://via.placeholder.com/110?text=🍣';
-      const card = document.createElement('div');
-      card.className = 'pdv-card';
-      card.style.backgroundImage = `url('${img}')`;  // backgroundImage é propriedade de dados, não estilo visual
-      card.title = p.nome;
-      card.onclick = () => adicionarItemPDV(p);
-      card.innerHTML = `
-        <div class="pdv-card-price">Gs ${p.preco.toLocaleString('es-PY')}</div>
-        <div class="pdv-card-overlay">${p.nome}</div>
-      `;
-      row.appendChild(card);
-    });
-
+    porCategoria[slug].forEach((p) => row.appendChild(_criarCardPDV(p)));
     grid.appendChild(row);
   });
 }
 
+function _criarCardPDV(p) {
+  const img = p.imagem_url || '';
+  const card = document.createElement('div');
+  card.className = 'pdv-card';
+  if (img) card.style.backgroundImage = `url('${img}')`;
+  else card.classList.add('pdv-card-noimg');
+  card.title = p.nome;
+  card.onclick = () => adicionarItemPDV(p);
+  card.innerHTML = `
+    <div class="pdv-card-price">Gs ${p.preco.toLocaleString('es-PY')}</div>
+    <div class="pdv-card-overlay">${p.nome}</div>
+  `;
+  return card;
+}
+
+function filtrarPDV(valor) {
+  renderizarGridPDV(valor);
+}
+
+// Categorias que NÃO recebem o upsell de extras globais
+const _CATS_SEM_EXTRAS_GLOBAIS = ['bebidas', 'bebida', 'extras', 'extra', 'molhos', 'adicionais'];
+
+// Extras globais padrão do sushi (carregados das configurações ou hardcoded como fallback)
+let _extrasGlobaisCache = null;
+async function _getExtrasGlobais() {
+  if (_extrasGlobaisCache !== null) return _extrasGlobaisCache;
+  // Tenta carregar das configurações (campo extras_globais no Supabase)
+  const { data } = await supa
+    .from('configuracoes')
+    .select('extras_globais')
+    .single()
+    .catch(() => ({ data: null }));
+  if (data && Array.isArray(data.extras_globais) && data.extras_globais.length > 0) {
+    _extrasGlobaisCache = data.extras_globais;
+  } else {
+    // Fallback com os extras da foto
+    _extrasGlobaisCache = [
+      { nome: 'Shoyu', preco: 2000 },
+      { nome: 'Taré (Teriaki)', preco: 3000 },
+      { nome: 'Sunomono', preco: 2000 },
+      { nome: 'Jengibre', preco: 2000 },
+      { nome: 'Wasabi', preco: 2000 },
+    ];
+  }
+  return _extrasGlobaisCache;
+}
+
+function _deveMostrarExtrasGlobais(produto) {
+  const cat = (produto.categoria_slug || '').toLowerCase();
+  return !_CATS_SEM_EXTRAS_GLOBAIS.some((c) => cat.includes(c));
+}
+
 function adicionarItemPDV(p) {
-  const existe = carrinhoPDV.find((i) => i.id === p.id);
+  // Verifica se produto tem variações
+  const cfg = p.montagem_config;
+  const tipo = cfg && !Array.isArray(cfg) && cfg.__tipo ? cfg.__tipo : null;
+  if (tipo === 'variacoes' && cfg.variacoes && cfg.variacoes.length > 0) {
+    const variacoesAtivas = cfg.variacoes.filter((v) => v.ativo !== false);
+    if (variacoesAtivas.length === 0) {
+      alert('⏸️ Todas as variações deste produto estão pausadas.');
+      return;
+    }
+    _mostrarModalVariacaoPDV(p, variacoesAtivas);
+    return;
+  }
+  const existe = carrinhoPDV.find((i) => i.id === p.id && !i.variacao);
   if (existe) existe.qtd++;
   else carrinhoPDV.push({ ...p, qtd: 1 });
   atualizarCarrinhoPDV();
+
+  // Upsell de extras globais (exceto bebidas e extras)
+  if (_deveMostrarExtrasGlobais(p)) {
+    _getExtrasGlobais().then((extras) => {
+      if (extras && extras.length > 0) _mostrarUpsellExtrasPDV(p, extras);
+    });
+  }
+}
+
+// Cache seguro de produto — evita JSON.stringify em onclick (causava crash com montagem_config)
+window._pdvProdCache = {};
+
+function _mostrarModalVariacaoPDV(produto, variacoes) {
+  document.getElementById('pdv-var-modal')?.remove();
+
+  // Guarda produto no cache por ID
+  const cacheKey = 'pdv_' + (produto.id || Date.now());
+  window._pdvProdCache[cacheKey] = produto;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pdv-var-modal';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const modal = document.createElement('div');
+  modal.style.cssText =
+    'background:#fff;border-radius:16px;padding:20px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)';
+
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:16px';
+  header.innerHTML = `
+    <h4 style="margin:0;font-size:1rem;color:#333">🎨 Escolha a variação</h4>
+    <button id="_pdv-var-close" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#999">✕</button>`;
+  modal.appendChild(header);
+  modal.querySelector('#_pdv-var-close').onclick = () => overlay.remove();
+
+  const nomeProd = document.createElement('p');
+  nomeProd.style.cssText = 'font-size:0.88rem;color:#666;margin-bottom:14px';
+  nomeProd.textContent = produto.nome;
+  modal.appendChild(nomeProd);
+
+  const lista = document.createElement('div');
+  lista.style.cssText = 'display:flex;flex-direction:column;gap:10px';
+
+  variacoes.forEach((v) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.style.cssText =
+      'display:flex;align-items:center;gap:12px;background:#f9f9f9;border:2px solid #e5e7eb;border-radius:10px;padding:10px 14px;cursor:pointer;text-align:left;transition:border-color 0.15s;width:100%';
+    btn.onmouseover = () => { btn.style.borderColor = 'var(--primary)'; };
+    btn.onmouseout  = () => { btn.style.borderColor = '#e5e7eb'; };
+
+    const imgSrc = v.img || produto.imagem_url;
+    btn.innerHTML = `
+      ${imgSrc ? `<img src="${imgSrc}" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : ''}
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:0.9rem;color:#333">${v.nome}</div>
+        <div style="font-size:0.82rem;color:var(--primary);font-weight:600">Gs ${(v.preco || produto.preco || 0).toLocaleString('es-PY')}</div>
+      </div>`;
+
+    btn.onclick = () => {
+      const p = window._pdvProdCache[cacheKey];
+      if (!p) return;
+      const existe = carrinhoPDV.find(i => i.id === p.id && i.variacao === v.nome);
+      if (existe) {
+        existe.qtd++;
+      } else {
+        carrinhoPDV.push({
+          id: p.id, nome: p.nome, img: p.imagem_url,
+          preco: v.preco || p.preco || 0,
+          qtd: 1, variacao: v.nome, montagem: [], obs: ''
+        });
+      }
+      atualizarCarrinhoPDV();
+      overlay.remove();
+    };
+    lista.appendChild(btn);
+  });
+
+  modal.appendChild(lista);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
+// ── Toast de upsell de extras globais ─────────────────────────────
+function _mostrarUpsellExtrasPDV(produto, extras) {
+  // Remove toast anterior se ainda estiver aberto
+  document.getElementById('pdv-upsell-toast')?.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'pdv-upsell-toast';
+  toast.style.cssText = [
+    'position:fixed;bottom:20px;right:16px;z-index:99998',
+    'background:#fff;border-radius:14px',
+    'box-shadow:0 8px 32px rgba(0,0,0,0.18)',
+    'padding:0;max-width:300px;width:calc(100vw - 32px)',
+    'border:1px solid #f0f0f0',
+    'animation:_upsellIn 0.25s cubic-bezier(.4,0,.2,1)',
+    'overflow:hidden',
+  ].join(';');
+
+  if (!document.getElementById('_upsell-style')) {
+    const s = document.createElement('style');
+    s.id = '_upsell-style';
+    s.textContent = `
+      @keyframes _upsellIn{from{transform:translateY(20px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+      #pdv-upsell-toast .ue-btn:hover{filter:brightness(0.92)}
+    `;
+    document.head.appendChild(s);
+  }
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.style.cssText =
+    'display:flex;justify-content:space-between;align-items:center;padding:12px 14px 10px;border-bottom:1px solid #f5f5f5;background:linear-gradient(135deg,#fff8f5,#fff)';
+  hdr.innerHTML = `
+    <div>
+      <div style="font-weight:700;font-size:0.85rem;color:#333">🍣 Adicionar ao pedido?</div>
+      <div style="font-size:0.73rem;color:#999;margin-top:1px">${produto.nome}</div>
+    </div>`;
+  const btnX = document.createElement('button');
+  btnX.textContent = '✕';
+  btnX.style.cssText =
+    'background:none;border:none;font-size:1rem;cursor:pointer;color:#bbb;padding:4px 6px;border-radius:6px;flex-shrink:0';
+  btnX.addEventListener('click', () => toast.remove());
+  hdr.appendChild(btnX);
+  toast.appendChild(hdr);
+
+  // Lista de extras
+  const lista = document.createElement('div');
+  lista.style.cssText = 'padding:6px 0';
+  extras.forEach((extra) => {
+    if (!extra.nome) return;
+    const row = document.createElement('div');
+    row.style.cssText =
+      'display:flex;justify-content:space-between;align-items:center;padding:7px 14px;transition:background .1s';
+    row.onmouseenter = () => (row.style.background = '#fafafa');
+    row.onmouseleave = () => (row.style.background = '');
+
+    const info = document.createElement('div');
+    info.innerHTML = `
+      <div style="font-size:0.83rem;font-weight:600;color:#333">${extra.nome}</div>
+      <div style="font-size:0.73rem;color:var(--primary,#FF441F);font-weight:700">+ Gs ${(extra.preco || 0).toLocaleString('es-PY')}</div>`;
+
+    const btn = document.createElement('button');
+    btn.className = 'ue-btn';
+    btn.style.cssText =
+      'background:var(--primary,#FF441F);color:#fff;border:none;border-radius:8px;padding:5px 13px;font-size:0.78rem;cursor:pointer;font-weight:700;transition:all .15s;white-space:nowrap;flex-shrink:0';
+    btn.textContent = '+ Add';
+    btn.addEventListener('click', () => {
+      const nomeExtra = extra.nome;
+      const existe = carrinhoPDV.find((i) => i._isExtra && i.nome === nomeExtra);
+      if (existe) {
+        existe.qtd++;
+      } else {
+        carrinhoPDV.push({
+          id: 'ext_' + Date.now(),
+          nome: nomeExtra,
+          preco: extra.preco || 0,
+          qtd: 1,
+          _isExtra: true,
+        });
+      }
+      atualizarCarrinhoPDV();
+      btn.textContent = '✓';
+      btn.style.background = '#27ae60';
+      btn.disabled = true;
+      row.style.opacity = '0.6';
+    });
+
+    row.appendChild(info);
+    row.appendChild(btn);
+    lista.appendChild(row);
+  });
+  toast.appendChild(lista);
+
+  document.body.appendChild(toast);
+  // Auto-fecha em 10 s
+  setTimeout(() => {
+    if (document.getElementById('pdv-upsell-toast') === toast) toast.remove();
+  }, 10000);
 }
 
 function removerItemPDV(idx) {
@@ -3352,8 +4613,8 @@ function removerItemPDV(idx) {
 }
 
 function atualizarCarrinhoPDV() {
-  const lista    = document.getElementById('pdv-lista');
-  const totalEl  = document.getElementById('balcao-total');
+  const lista = document.getElementById('pdv-lista');
+  const totalEl = document.getElementById('balcao-total');
   if (!lista) return;
 
   lista.innerHTML = '';
@@ -3361,7 +4622,9 @@ function atualizarCarrinhoPDV() {
 
   // ── Itens existentes da mesa (snapshot do DB) ──────────────────
   const itensExistentes = window._mesaAbertaPedido
-    ? (Array.isArray(window._mesaAbertaPedido.itens) ? window._mesaAbertaPedido.itens : [])
+    ? Array.isArray(window._mesaAbertaPedido.itens)
+      ? window._mesaAbertaPedido.itens
+      : []
     : [];
 
   if (itensExistentes.length > 0) {
@@ -3371,10 +4634,10 @@ function atualizarCarrinhoPDV() {
     lista.appendChild(secTitle);
 
     itensExistentes.forEach((item, idx) => {
-      const entregue  = item.status_item === 'entregue';
-      const qtd       = item.qtd || item.q || 1;
-      const nome      = item.nome || item.n || 'Item';
-      const preco     = item.preco || item.p || 0;
+      const entregue = item.status_item === 'entregue';
+      const qtd = item.qtd || item.q || 1;
+      const nome = item.nome || item.n || 'Item';
+      const preco = item.preco || item.p || 0;
       total += preco * qtd;
 
       const row = document.createElement('div');
@@ -3386,12 +4649,16 @@ function atualizarCarrinhoPDV() {
         </div>
         <div class="pdv-item-acoes">
           <span>Gs ${(preco * qtd).toLocaleString('es-PY')}</span>
-          ${!entregue ? `
+          ${
+            !entregue
+              ? `
             <button class="btn btn-sm btn-success pdv-btn-baixar"
               title="Marcar como entregue"
               onclick="baixarItemMesa(${window._mesaAbertaId}, ${idx})">
               <i class="fas fa-check"></i>
-            </button>` : ''}
+            </button>`
+              : ''
+          }
         </div>`;
       lista.appendChild(row);
     });
@@ -3423,26 +4690,143 @@ function atualizarCarrinhoPDV() {
   }
 
   if (totalEl) totalEl.innerText = total.toLocaleString('es-PY');
+
+  // Atualiza barra inferior mobile
+  const mobileQtd = document.getElementById('pdv-mobile-qtd');
+  const mobileTot = document.getElementById('pdv-mobile-total-val');
+  const qtdTotal = carrinhoPDV.reduce((a, i) => a + i.qtd, 0);
+  if (mobileQtd) mobileQtd.textContent = qtdTotal + (qtdTotal === 1 ? ' item' : ' itens');
+  if (mobileTot) mobileTot.textContent = total.toLocaleString('es-PY');
+
   atualizarInfoPagPDV(total);
 }
 
 function atualizarInfoPagPDV(total) {
   const pag = document.getElementById('balcao-pag')?.value;
   const infoBox = document.getElementById('balcao-pag-info');
+  const boxMultiPDV = document.getElementById('box-multi-pdv');
+  const selectPag = document.getElementById('balcao-pag');
   if (!infoBox) return;
+
+  infoBox.style.display = 'none';
+  if (boxMultiPDV) boxMultiPDV.style.display = 'none';
+  if (selectPag) selectPag.style.display = '';
 
   if (pag === 'Pix' && total > 0) {
     const valorReais = (total / _cotacaoPDV).toFixed(2);
     infoBox.style.display = 'block';
     infoBox.innerHTML = `<i class="fas fa-qrcode"></i> <strong>Cobrar em Pix: R$ ${valorReais}</strong>`;
-  } else {
-    infoBox.style.display = 'none';
+  } else if (pag === 'Multipagamento') {
+    if (selectPag) selectPag.style.display = 'none';
+    if (boxMultiPDV) {
+      boxMultiPDV.style.display = 'block';
+      const partesEl = document.getElementById('multi-partes-pdv');
+      if (partesEl && partesEl.children.length === 0) {
+        adicionarPartePagamentoPDV();
+        adicionarPartePagamentoPDV();
+      }
+      atualizarRestanteMultiPDV();
+    }
   }
+}
+
+// ── MULTIPAGAMENTO PDV ─────────────────────────────────────────────
+let _multiContadorPDV = 0;
+
+function voltarPagamentoPDVUnico() {
+  document.getElementById('balcao-pag').value = 'Efetivo';
+  document.getElementById('box-multi-pdv').style.display = 'none';
+  document.getElementById('multi-partes-pdv').innerHTML = '';
+  document.getElementById('balcao-pag').style.display = '';
+  _multiContadorPDV = 0;
+  atualizarInfoPagPDV(parseInt(document.getElementById('balcao-total').innerText.replace(/\D/g, '')) || 0);
+}
+
+function adicionarPartePagamentoPDV() {
+  const container = document.getElementById('multi-partes-pdv');
+  if (!container) return;
+  _multiContadorPDV++;
+  const id = _multiContadorPDV;
+  const ordinal = ['1ª', '2ª', '3ª', '4ª', '5ª'][id - 1] || `${id}ª`;
+  const opts = [
+    { v:'Efetivo', l:'💵 Efectivo' }, { v:'Cartao', l:'💳 Tarjeta' },
+    { v:'Pix', l:'🟢 Pix' }, { v:'Transferencia', l:'🏦 Alias' }
+  ].map(m => `<option value="${m.v}">${m.l}</option>`).join('');
+
+  const card = document.createElement('div');
+  card.id = `multi-parte-pdv-${id}`;
+  card.style.cssText = 'background:white;border:1.5px solid #e0e0e0;border-radius:10px;padding:12px;margin-bottom:8px';
+  card.innerHTML = `
+    <div style="font-size:0.72rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${ordinal} FORMA</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="multi-metodo-pdv-${id}" onchange="atualizarRestanteMultiPDV()"
+          style="flex:1.5;padding:8px;border:1.5px solid #e0e0e0;border-radius:7px;font-size:0.85rem;background:white;font-weight:600">
+        <option value="">Selecionar...</option>${opts}
+      </select>
+      <div style="flex:1;position:relative">
+        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#888;font-size:0.8rem;pointer-events:none">Gs</span>
+        <input type="number" id="multi-valor-pdv-${id}" placeholder="0" min="0" step="1000"
+            oninput="atualizarRestanteMultiPDV()"
+            style="width:100%;padding:8px 8px 8px 28px;border:1.5px solid #e0e0e0;border-radius:7px;font-size:0.9rem;font-weight:700;box-sizing:border-box">
+      </div>
+      ${id > 2 ? `<button type="button" onclick="removerPartePDV(${id})"
+          style="background:#ffeaea;color:#e74c3c;border:none;padding:8px 10px;border-radius:7px;cursor:pointer;flex-shrink:0">✕</button>` : ''}
+    </div>`;
+  container.appendChild(card);
+  atualizarRestanteMultiPDV();
+}
+
+function removerPartePDV(id) {
+  document.getElementById(`multi-parte-pdv-${id}`)?.remove();
+  atualizarRestanteMultiPDV();
+}
+
+function atualizarRestanteMultiPDV() {
+  const total = parseInt(document.getElementById('balcao-total')?.innerText.replace(/\D/g, '') || '0');
+  const inputs = [...document.querySelectorAll('[id^="multi-valor-pdv-"]')];
+  let soma = 0;
+  inputs.forEach(inp => { soma += parseFloat(inp.value) || 0; });
+
+  // Auto-fill: se exatamente 1 input vazio e sobra valor
+  const vazios = inputs.filter(inp => !inp.value || parseFloat(inp.value) === 0);
+  if (vazios.length === 1 && total - soma > 0) {
+    vazios[0].value = total - soma;
+    soma = total;
+  }
+
+  const bar = document.getElementById('multi-status-pdv');
+  const el = document.getElementById('multi-restante-pdv');
+  if (!el || !bar) return;
+  bar.style.display = 'block';
+
+  const diff = total - soma;
+  if (Math.abs(diff) < 1) {
+    bar.style.background = '#eafaf1'; bar.style.borderColor = '#27ae60';
+    el.innerHTML = `<span style="color:#27ae60">✅ Total coberto: Gs ${total.toLocaleString('es-PY')}</span>`;
+  } else if (diff > 0) {
+    bar.style.background = '#fff8e6'; bar.style.borderColor = '#f0a500';
+    el.innerHTML = `<span style="color:#e67e22">⚠️ Faltam: Gs ${diff.toLocaleString('es-PY')}</span>`;
+  } else {
+    bar.style.background = '#fdf3f3'; bar.style.borderColor = '#e74c3c';
+    el.innerHTML = `<span style="color:#e74c3c">❌ Excede: Gs ${Math.abs(diff).toLocaleString('es-PY')}</span>`;
+  }
+}
+
+function _coletarMultiPagamentoPDV() {
+  const partes = [];
+  document.querySelectorAll('[id^="multi-parte-pdv-"]').forEach(div => {
+    const idStr = div.id.replace('multi-parte-pdv-', '');
+    const metodo = document.getElementById(`multi-metodo-pdv-${idStr}`)?.value || '';
+    const valor = parseFloat(document.getElementById(`multi-valor-pdv-${idStr}`)?.value) || 0;
+    if (metodo && valor > 0) partes.push({ metodo, valor });
+  });
+  return partes;
 }
 
 async function salvarPedidoBalcao() {
   if (carrinhoPDV.length === 0 && !window._mesaAbertaId) return alert('Carrinho vazio!');
-  if (carrinhoPDV.length === 0 && window._mesaAbertaId) return alert('Adicione ao menos 1 novo item antes de lançar.');
+  if (carrinhoPDV.length === 0 && window._mesaAbertaId)
+    return alert('Adicione ao menos 1 novo item antes de lançar.');
 
   const mesa = document.getElementById('balcao-mesa').value.trim();
   if (!mesa) {
@@ -3451,21 +4835,35 @@ async function salvarPedidoBalcao() {
     return;
   }
 
-  const cli      = document.getElementById('balcao-cliente').value || 'Cliente';
-  const tel      = document.getElementById('balcao-telefone').value || '';
-  const pag      = document.getElementById('balcao-pag').value;
+  const cli = document.getElementById('balcao-cliente').value || 'Cliente';
+  const tel = document.getElementById('balcao-telefone').value || '';
+  let pag = document.getElementById('balcao-pag').value;
   const nomeFinal = `MESA ${mesa} - ${cli}`;
+
+  // ── Tratamento Multipagamento ────────────────────────────────
+  let obsPagPDV = 'Pagamento no Balcão';
+  if (pag === 'Multipagamento') {
+    const partesPDV = _coletarMultiPagamentoPDV();
+    if (partesPDV.length === 0) { alert('Adicione ao menos 1 forma de pagamento!'); return; }
+    const totalPedido = parseInt(document.getElementById('balcao-total')?.innerText.replace(/\D/g, '') || '0');
+    const somaPartes = partesPDV.reduce((a, p) => a + p.valor, 0);
+    if (Math.abs(somaPartes - totalPedido) > 1) {
+      alert(`⚠️ Total das formas (Gs ${somaPartes.toLocaleString('es-PY')}) não bate com o total do pedido (Gs ${totalPedido.toLocaleString('es-PY')}).`);
+      return;
+    }
+    obsPagPDV = JSON.stringify(partesPDV);
+  }
 
   // ── Novos itens ganham status_item: 'pendente' ─────────────────
   const novosItens = carrinhoPDV.map((i) => ({
-    id:           i.id || Date.now() + Math.random(),
-    nome:         i.nome,
-    preco:        i.preco,
-    qtd:          i.qtd,
-    montagem:     i.montagem || [],
-    obs:          i.obs     || '',
-    status_item:  'pendente',   // ← campo de status por item
-    lancado_em:   new Date().toISOString(),
+    id: i.id || Date.now() + Math.random(),
+    nome: i.nome,
+    preco: i.preco,
+    qtd: i.qtd,
+    montagem: i.montagem || [],
+    obs: i.obs || '',
+    status_item: 'pendente', // ← campo de status por item
+    lancado_em: new Date().toISOString(),
   }));
 
   if (window._mesaAbertaId) {
@@ -3476,17 +4874,21 @@ async function salvarPedidoBalcao() {
       : [];
 
     const itensMerged = [...itensExistentes, ...novosItens];
-    const novoTotal   = itensMerged.reduce((acc, i) => acc + ((i.preco || 0) * (i.qtd || 1)), 0);
+    const novoTotal = itensMerged.reduce((acc, i) => acc + (i.preco || 0) * (i.qtd || 1), 0);
 
-    const { error } = await supa.from('pedidos').update({
-      itens:           itensMerged,
-      total_geral:     novoTotal,
-      subtotal:        novoTotal,
-      forma_pagamento: pag,
-      cliente_nome:    nomeFinal,
-      cliente_telefone: tel,
-      status:          'em_preparo',
-    }).eq('id', window._mesaAbertaId);
+    const { error } = await supa
+      .from('pedidos')
+      .update({
+        itens: itensMerged,
+        total_geral: novoTotal,
+        subtotal: novoTotal,
+        forma_pagamento: pag,
+        obs_pagamento: obsPagPDV,
+        cliente_nome: nomeFinal,
+        cliente_telefone: tel,
+        status: 'em_preparo',
+      })
+      .eq('id', window._mesaAbertaId);
 
     if (error) {
       alert('Erro ao atualizar mesa: ' + error.message);
@@ -3494,13 +4896,13 @@ async function salvarPedidoBalcao() {
     }
 
     // Reset
-    window._mesaAbertaId     = null;
-    window._mesaAbertaTotal  = 0;
+    window._mesaAbertaId = null;
+    window._mesaAbertaTotal = 0;
     window._mesaAbertaPedido = null;
     carrinhoPDV = [];
-    document.getElementById('balcao-cliente').value   = '';
-    document.getElementById('balcao-mesa').value      = '';
-    document.getElementById('balcao-telefone').value  = '';
+    document.getElementById('balcao-cliente').value = '';
+    document.getElementById('balcao-mesa').value = '';
+    document.getElementById('balcao-telefone').value = '';
     document.querySelector('.pdv-mesa-aviso')?.remove();
     atualizarCarrinhoPDV();
     atualizarBarraMesasAtivas();
@@ -3511,19 +4913,24 @@ async function salvarPedidoBalcao() {
 
   // ── INSERT: novo pedido de balcão ─────────────────────────────
   const totalNovo = novosItens.reduce((acc, i) => acc + i.preco * i.qtd, 0);
+  const _agora = new Date().toISOString();
   const pedido = {
-    uid_temporal:         `BALC-${Math.floor(Math.random() * 1000)}`,
-    status:               'em_preparo',
-    tipo_entrega:         'balcao',
-    total_geral:          totalNovo,
-    subtotal:             totalNovo,
+    uid_temporal: `BALC-${Math.floor(Math.random() * 1000)}`,
+    status: 'em_preparo',
+    tipo_entrega: 'balcao',
+    total_geral: totalNovo,
+    subtotal: totalNovo,
     frete_cobrado_cliente: 0,
-    forma_pagamento:      pag,
-    itens:                novosItens,
-    endereco_entrega:     `Mesa ${mesa}`,
-    cliente_nome:         nomeFinal,
-    cliente_telefone:     tel,
-    obs_pagamento:        'Pagamento no Balcão',
+    forma_pagamento: pag,
+    itens: novosItens,
+    endereco_entrega: `Mesa ${mesa}`,
+    cliente_nome: nomeFinal,
+    cliente_telefone: tel,
+    obs_pagamento: obsPagPDV,
+    // Timestamps automáticos para PDV (já entra direto em preparo)
+    tempo_recebido: _agora,
+    tempo_confirmado: _agora,
+    tempo_preparo_iniciado: _agora,
   };
 
   const { error } = await supa.from('pedidos').insert([pedido]);
@@ -3533,15 +4940,22 @@ async function salvarPedidoBalcao() {
   }
 
   carrinhoPDV = [];
-  document.getElementById('balcao-cliente').value  = '';
-  document.getElementById('balcao-mesa').value     = '';
+  document.getElementById('balcao-cliente').value = '';
+  document.getElementById('balcao-mesa').value = '';
   document.getElementById('balcao-telefone').value = '';
+  // Reset multipagamento PDV
+  const multiPartesPDV = document.getElementById('multi-partes-pdv');
+  if (multiPartesPDV) multiPartesPDV.innerHTML = '';
+  _multiContadorPDV = 0;
+  document.getElementById('balcao-pag').value = 'Efetivo';
+  document.getElementById('balcao-pag').style.display = '';
+  const boxMultiPDV = document.getElementById('box-multi-pdv');
+  if (boxMultiPDV) boxMultiPDV.style.display = 'none';
   atualizarCarrinhoPDV();
   atualizarBarraMesasAtivas();
   carregarMonitorMesas();
   alert('Pedido enviado para a Cozinha! 👨‍🍳');
 }
-
 
 // ── Barra de Mesas Ativas no PDV ─────────────────────────────
 async function atualizarBarraMesasAtivas() {
@@ -3566,13 +4980,16 @@ async function atualizarBarraMesasAtivas() {
   data.forEach((p) => {
     const nrMesa = (p.endereco_entrega || '').replace('Mesa ', '') || p.id;
     const chip = document.createElement('button');
-    chip.className = 'mesa-chip' +
-      (p.status === 'pronto_entrega' ? ' mesa-pronto' :
-       p.status === 'em_preparo' ? ' mesa-em-preparo' : '');
+    chip.className =
+      'mesa-chip' +
+      (p.status === 'pronto_entrega'
+        ? ' mesa-pronto'
+        : p.status === 'em_preparo'
+          ? ' mesa-em-preparo'
+          : '');
     chip.title = `${p.cliente_nome || 'Mesa ' + nrMesa} — Gs ${(p.total_geral || 0).toLocaleString('es-PY')} — Clique para adicionar itens`;
     chip.innerHTML = `<span class="mesa-chip-num">${nrMesa}</span><span class="mesa-chip-status">${
-      p.status === 'pronto_entrega' ? '✓ Pronto' :
-      p.status === 'em_preparo' ? '🔥' : '●'
+      p.status === 'pronto_entrega' ? '✓ Pronto' : p.status === 'em_preparo' ? '🔥' : '●'
     }</span>`;
     chip.onclick = () => abrirMesaExistente(p);
     bar.appendChild(chip);
@@ -3586,9 +5003,9 @@ function abrirMesaExistente(pedido) {
 
   // Preenche os campos
   const elMesa = document.getElementById('balcao-mesa');
-  const elCli  = document.getElementById('balcao-cliente');
+  const elCli = document.getElementById('balcao-cliente');
   if (elMesa) elMesa.value = nrMesa;
-  if (elCli)  elCli.value  = nomeCli === 'Cliente' ? '' : nomeCli;
+  if (elCli) elCli.value = nomeCli === 'Cliente' ? '' : nomeCli;
 
   // ──────────────────────────────────────────────────────────────────
   // MUDANÇA: carrinhoPDV fica VAZIO — só recebe os NOVOS itens.
@@ -3596,8 +5013,8 @@ function abrirMesaExistente(pedido) {
   // Na hora do save, fazemos merge: existentes (intactos) + novos (pendente).
   // ──────────────────────────────────────────────────────────────────
   carrinhoPDV = [];
-  window._mesaAbertaId     = pedido.id;
-  window._mesaAbertaTotal  = pedido.total_geral || 0;
+  window._mesaAbertaId = pedido.id;
+  window._mesaAbertaTotal = pedido.total_geral || 0;
   window._mesaAbertaPedido = pedido; // guarda snapshot completo
 
   atualizarCarrinhoPDV();
@@ -3646,44 +5063,51 @@ async function carregarMonitorMesas() {
     // Lógica Visual do Status — usa classes CSS
     if (p.status === 'em_preparo') {
       cardClass += ' mesa-preparo';
-      statusHtml = '<span class="mesa-monitor-status-cozinha"><i class="fas fa-fire"></i> Na Cozinha</span>';
+      statusHtml =
+        '<span class="mesa-monitor-status-cozinha"><i class="fas fa-fire"></i> Na Cozinha</span>';
       acaoHtml = '<small class="mesa-monitor-status-cozinha">Aguardando cozinha...</small>';
     } else if (p.status === 'pronto_entrega') {
       cardClass += ' mesa-pronta';
-      statusHtml = '<span class="mesa-monitor-status-pronto"><i class="fas fa-check-circle"></i> PRONTO!</span>';
+      statusHtml =
+        '<span class="mesa-monitor-status-pronto"><i class="fas fa-check-circle"></i> PRONTO!</span>';
       acaoHtml = `<button class="btn btn-sm btn-success btn-block-pdv" onclick="finalizarMesa(${p.id})">Entregar / Baixar</button>`;
     } else {
       statusHtml = `<span class="mesa-monitor-valor">${p.status}</span>`;
     }
 
-    const nrMesa = (p.endereco_entrega || '').replace('Mesa ', '') || (p.uid_temporal || p.id);
+    const nrMesa = (p.endereco_entrega || '').replace('Mesa ', '') || p.uid_temporal || p.id;
 
     // Lista de itens com status visual por item
     const itens = Array.isArray(p.itens) ? p.itens : [];
     const pendentes = itens.filter((i) => !i.status_item || i.status_item === 'pendente');
     const entregues = itens.filter((i) => i.status_item === 'entregue');
 
-    let itensListHtml = itens.map((item, idx) => {
-      const isEntregue = item.status_item === 'entregue';
-      const nome = item.nome || item.n || 'Item';
-      const qtd  = item.qtd  || item.q  || 1;
-      return `
+    let itensListHtml = itens
+      .map((item, idx) => {
+        const isEntregue = item.status_item === 'entregue';
+        const nome = item.nome || item.n || 'Item';
+        const qtd = item.qtd || item.q || 1;
+        return `
         <div class="monitor-item-row ${isEntregue ? 'monitor-item-entregue' : ''}">
           <span class="monitor-item-nome">${qtd}x ${nome}</span>
-          ${isEntregue
-            ? '<span class="monitor-item-badge-entregue">✓ Entregue</span>'
-            : `<button class="btn btn-xs btn-outline-success monitor-btn-baixar"
+          ${
+            isEntregue
+              ? '<span class="monitor-item-badge-entregue">✓ Entregue</span>'
+              : `<button class="btn btn-xs btn-outline-success monitor-btn-baixar"
                 title="Marcar como entregue"
                 onclick="baixarItemMesa(${p.id}, ${idx})">
                 <i class="fas fa-check"></i>
-               </button>`}
+               </button>`
+          }
         </div>`;
-    }).join('');
+      })
+      .join('');
 
     // Contador de pendentes no cabeçalho
-    const cntPendente = pendentes.length > 0
-      ? `<span class="mesa-monitor-cnt-pendente">${pendentes.length} pendente${pendentes.length > 1 ? 's' : ''}</span>`
-      : '';
+    const cntPendente =
+      pendentes.length > 0
+        ? `<span class="mesa-monitor-cnt-pendente">${pendentes.length} pendente${pendentes.length > 1 ? 's' : ''}</span>`
+        : '';
 
     const card = document.createElement('div');
     card.className = cardClass;
@@ -3706,8 +5130,14 @@ async function carregarMonitorMesas() {
 async function baixarItemMesa(pedidoId, itemIdx) {
   // Busca snapshot mais recente do banco (evita conflito de estado stale)
   const { data: p, error: errFetch } = await supa
-    .from('pedidos').select('itens, total_geral').eq('id', pedidoId).single();
-  if (errFetch || !p) { alert('Erro ao buscar comanda.'); return; }
+    .from('pedidos')
+    .select('itens, total_geral')
+    .eq('id', pedidoId)
+    .single();
+  if (errFetch || !p) {
+    alert('Erro ao buscar comanda.');
+    return;
+  }
 
   const itens = Array.isArray(p.itens) ? [...p.itens] : [];
   if (!itens[itemIdx]) return;
@@ -3715,10 +5145,12 @@ async function baixarItemMesa(pedidoId, itemIdx) {
   // Muda status do item específico
   itens[itemIdx] = { ...itens[itemIdx], status_item: 'entregue' };
 
-  const { error } = await supa
-    .from('pedidos').update({ itens }).eq('id', pedidoId);
+  const { error } = await supa.from('pedidos').update({ itens }).eq('id', pedidoId);
 
-  if (error) { alert('Erro ao baixar item: ' + error.message); return; }
+  if (error) {
+    alert('Erro ao baixar item: ' + error.message);
+    return;
+  }
 
   // Atualiza o snapshot local e re-renderiza o carrinho PDV
   if (window._mesaAbertaPedido && window._mesaAbertaId === pedidoId) {
@@ -3732,9 +5164,11 @@ async function baixarItemMesa(pedidoId, itemIdx) {
 // Função para dar baixa na mesa (Muda status para 'entregue' e sai da lista)
 async function finalizarMesa(id) {
   if (confirm('Confirmar entrega e pagamento desta mesa?')) {
-    await supa.from('pedidos').update({ status: 'entregue' }).eq('id', id);
+    await supa.from('pedidos').update({
+      status: 'entregue',
+      tempo_entregue: new Date().toISOString()   // ← registra hora de fechamento
+    }).eq('id', id);
     carregarMonitorMesas();
-    // Se estiver na aba financeiro, atualiza também
     if (typeof calcularFinanceiro === 'function') calcularFinanceiro();
   }
 }
@@ -3995,7 +5429,7 @@ async function carregarCupons() {
     let usoHtml;
     if (c.limite_uso && c.limite_uso > 0) {
       const restante = c.limite_uso - usosRealizados;
-      const esgotado  = restante <= 0;
+      const esgotado = restante <= 0;
       usoHtml = `
         <div style="font-size:0.82rem">
           <span style="font-weight:700;color:${esgotado ? '#e74c3c' : '#27ae60'}">${usosRealizados}/${c.limite_uso}</span>
@@ -4008,11 +5442,11 @@ async function carregarCupons() {
     // Validade
     let validadeHtml = '<span style="color:#ccc;font-size:0.8rem">—</span>';
     if (c.validade) {
-      const vDate    = new Date(c.validade + 'T00:00:00');
-      const hoje     = new Date();
-      hoje.setHours(0,0,0,0);
+      const vDate = new Date(c.validade + 'T00:00:00');
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
       const expirado = vDate < hoje;
-      validadeHtml   = `<span style="font-size:0.8rem;color:${expirado ? '#e74c3c' : '#555'}">${vDate.toLocaleDateString('pt-BR')}${expirado ? ' <em style=\'font-size:0.7rem\'>(Expirado)</em>' : ''}</span>`;
+      validadeHtml = `<span style="font-size:0.8rem;color:${expirado ? '#e74c3c' : '#555'}">${vDate.toLocaleDateString('pt-BR')}${expirado ? " <em style='font-size:0.7rem'>(Expirado)</em>" : ''}</span>`;
     }
 
     tbody.innerHTML += `
@@ -4046,8 +5480,10 @@ function abrirModalCupom(cupom = null) {
   document.getElementById('cupom-minimo').value = cupom ? cupom.minimo : '';
   document.getElementById('cupom-ativo').checked = cupom ? cupom.ativo : true;
   // Limite de usos e validade
-  document.getElementById('cupom-limite').value   = cupom?.limite_uso  ?? '';
-  document.getElementById('cupom-validade').value = cupom?.validade    ? cupom.validade.split('T')[0] : '';
+  document.getElementById('cupom-limite').value = cupom?.limite_uso ?? '';
+  document.getElementById('cupom-validade').value = cupom?.validade
+    ? cupom.validade.split('T')[0]
+    : '';
 
   alterarTipoCupom();
 
@@ -4073,13 +5509,13 @@ async function salvarCupom() {
   const validadeRaw = document.getElementById('cupom-validade').value;
 
   const dados = {
-    codigo:     document.getElementById('cupom-codigo').value.toUpperCase(),
-    tipo:       document.getElementById('cupom-tipo').value,
-    valor:      parseFloat(document.getElementById('cupom-valor').value) || 0,
-    minimo:     parseFloat(document.getElementById('cupom-minimo').value) || 0,
-    ativo:      document.getElementById('cupom-ativo').checked,
-    limite_uso: (!isNaN(limiteRaw) && limiteRaw > 0) ? limiteRaw : null,
-    validade:   validadeRaw || null,
+    codigo: document.getElementById('cupom-codigo').value.toUpperCase(),
+    tipo: document.getElementById('cupom-tipo').value,
+    valor: parseFloat(document.getElementById('cupom-valor').value) || 0,
+    minimo: parseFloat(document.getElementById('cupom-minimo').value) || 0,
+    ativo: document.getElementById('cupom-ativo').checked,
+    limite_uso: !isNaN(limiteRaw) && limiteRaw > 0 ? limiteRaw : null,
+    validade: validadeRaw || null,
   };
 
   if (!dados.codigo) {

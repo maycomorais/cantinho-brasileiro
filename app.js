@@ -1,16 +1,16 @@
 // ==========================================
 // 1. CONFIGURAÇÕES & DADOS GERAIS
 // ==========================================
-const FONE_LOJA = '595992490500'; 
+const FONE_LOJA = '595982808985' // Cantinho Brasileiro; 
 const COORD_LOJA = { lat: -25.2365803, lng: -57.5380816 };
 let COTACAO_REAL = 1100;
 let autoConfirmTimer = null;
 
 // DADOS DE PAGAMENTO (Pix e Alias)
-const CHAVE_PIX = '16999647032';
-const NOME_PIX = 'Jessica Aparecida Silva Pereira';
-const DADOS_ALIAS = 'Banco: Itaú PY | Titular: Marcus de Alencar Roque Pereira';
-const ALIAS_PY = 'Alias: 0992490500';
+const CHAVE_PIX = '97016071200';
+const NOME_PIX = 'Daniely Coelho da Silva';
+const DADOS_ALIAS = '';
+const ALIAS_PY = '';
 
 function iniciarTimerAutoConfirmacao(pedidoId) {
     // 4 horas em milissegundos
@@ -55,7 +55,7 @@ function restaurarTimerSeNecessario() {
     } else {
         // Tempo já expirou, confirmar agora
         console.log('⏰ Tempo expirado, confirmando agora...');
-        confirmarEntregaAutomatica(pedidoId);
+        confirmarEntregaAutomatica(parseInt(pedidoId));
     }
 }
 
@@ -66,10 +66,9 @@ async function confirmarEntregaAutomatica(pedidoId) {
             .from('pedidos')
             .update({ 
                 status: 'entregue',
-                entrega_confirmada_em: new Date().toISOString(),
-                confirmacao_tipo: 'automatica'
+                tempo_entregue: new Date().toISOString()
             })
-            .eq('id', pedidoId);
+            .eq('id', parseInt(pedidoId));  // parseInt garante que não é string
         
         if (error) throw error;
         
@@ -107,10 +106,9 @@ async function confirmarEntregaCliente() {
             .from('pedidos')
             .update({ 
                 status: 'entregue',
-                entrega_confirmada_em: new Date().toISOString(),
-                confirmacao_tipo: 'cliente'
+                tempo_entregue: new Date().toISOString()
             })
-            .eq('id', pedidoId);
+            .eq('id', parseInt(pedidoId));  // parseInt garante tipo correto
         
         if (error) throw error;
         
@@ -209,16 +207,29 @@ if (typeof supa === 'undefined') {
 // ==========================================
 let carrinho = [];
 let freteCalculado = 0;
+let freteMotoboy = 0; // Valor pago ao motoboy (da tabela de frete)
 let localCliente = null;
 let modoEntrega = 'delivery';
 let prodAtual = null, optAtual = null, qtd = 1;
 let itensMontagem = {};
 let cupomAplicado = null;
+let EXTRAS_GLOBAIS = []; // Adicionais que aparecem em TODOS os produtos
+let TABELA_FRETE = null; // Tabela de frete por faixa de km (carregada do banco)
+
+// ==========================================
+// VARIÁVEIS DE CONTROLE DE HORÁRIO
+// ==========================================
+let LOJA_CONFIG = null; // Configurações da loja
+let EXTENSAO_HORARIO_TEMP = 0; // Extensão temporária do horário (em minutos) - só para hoje
+let ALERTA_15MIN_MOSTRADO = false; // Controle para não mostrar o alerta múltiplas vezes
+let PROXIMO_FECHAMENTO = null; // Próximo horário de fechamento
+let MODO_AGENDAMENTO = false; // Se o pedido é agendado para outra hora
+let DATA_AGENDAMENTO = null; // Data/hora do agendamento
 
 // Variável Global de Menu (Preenchida via Banco)
 let MENU = {
   promocoes_do_dia: [],
-  sushis_e_rolls: [],
+  pratos_especiais: [],
   temakis: [],
   pratos_quentes: [],
   pokes: [],
@@ -243,8 +254,51 @@ document.addEventListener('DOMContentLoaded', async () => {
   restaurarTrackingSeExistir();
 
   // Restaura timer se página foi recarregada durante entrega
-    restaurarTimerSeNecessario();
+  restaurarTimerSeNecessario();
+  
+  // 5. Carrega extras globais (adicionais que aparecem em todos os produtos)
+  await carregarExtrasGlobais();
+
+  const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+      overlay.style.opacity = '0';
+      setTimeout(() => { overlay.style.display = 'none'; }, 300);
+    }
 });
+
+// Carrega os extras globais da tabela configuracoes
+// (coluna extras_globais pode não existir ainda — SQL: ALTER TABLE configuracoes ADD COLUMN extras_globais JSONB DEFAULT '[]')
+async function carregarExtrasGlobais() {
+  try {
+    // Tenta buscar com a coluna extras_globais
+    const { data, error } = await supa.from('configuracoes').select('extras_globais').single();
+
+    // Se der erro de coluna não encontrada, ignora silenciosamente
+    if (error) {
+      if (error.message && error.message.includes('extras_globais')) {
+        console.log('ℹ️ Coluna extras_globais não existe no banco. Usando array vazio.');
+      } else if (error.code === 'PGRST204' || error.code === '42703') {
+        // Código de erro do PostgREST para coluna não encontrada
+        console.log('ℹ️ Coluna extras_globais não existe no banco. Usando array vazio.');
+      } else {
+        console.warn('Erro ao carregar extras globais:', error.message);
+      }
+      EXTRAS_GLOBAIS = [];
+      return;
+    }
+
+    if (data && Array.isArray(data.extras_globais) && data.extras_globais.length > 0) {
+      EXTRAS_GLOBAIS = data.extras_globais;
+      console.log('✅ Extras globais carregados:', EXTRAS_GLOBAIS.length, 'itens');
+    } else {
+      EXTRAS_GLOBAIS = [];
+    }
+  } catch (e) {
+    // Coluna ainda não existe no banco — ignora silenciosamente
+    console.log('ℹ️ Extras globais não disponíveis:', e.message);
+    EXTRAS_GLOBAIS = [];
+  }
+}
 
 // ==========================================
 // 4. FUNÇÕES DE BANCO DE DADOS E MENU
@@ -256,6 +310,7 @@ async function verificarHorario() {
   if (!data) return;
 
   if (data.cotacao_real) COTACAO_REAL = data.cotacao_real;
+  if (data.tabela_frete && Array.isArray(data.tabela_frete)) TABELA_FRETE = data.tabela_frete;
 
   const agora = new Date();
   const horaAtual = agora.getHours() * 60 + agora.getMinutes();
@@ -355,17 +410,61 @@ async function verificarHorario() {
 }
 
 // Renderiza o Menu (Categories + Produtos com subcategorias)
+
+// ── Verifica se a loja está aberta para receber pedidos agora ─────────────
+// Retorna { aberto: true/false, proximoDia: string|null }
+function verificarLojaAbertaParaPedido() {
+  const badge = document.querySelector('.badge-status');
+  const estaAberto = badge && badge.classList.contains('open');
+  // Se não conseguiu determinar pelo badge, assume aberto (evita bloquear por engano)
+  if (!badge) return { aberto: true, proximoDia: null };
+  return { aberto: estaAberto, proximoDia: null };
+}
+
+// ── Mostra alerta quando a loja está fechada ──────────────────────────────
+function mostrarAlertaLojaFechada(proximoDia) {
+  const lang = localStorage.getItem('language') || 'es';
+  const msgs = {
+    es: 'El local está cerrado en este momento. Por favor intente más tarde.',
+    pt: 'A loja está fechada no momento. Por favor tente mais tarde.',
+    en: 'The store is currently closed. Please try again later.',
+    de: 'Das Geschäft ist derzeit geschlossen. Bitte versuchen Sie es später.'
+  };
+  alert(msgs[lang] || msgs.es);
+}
+
+// ── Mostra badge de agendamento no checkout ───────────────────────────────
+function mostrarIndicadorAgendamento() {
+  let indicador = document.getElementById('indicador-agendamento');
+  if (indicador) return; // Já existe
+
+  indicador = document.createElement('div');
+  indicador.id = 'indicador-agendamento';
+  indicador.style.cssText = [
+    'background:#fff3cd;border:1.5px solid #f0a500;border-radius:8px',
+    'padding:10px 14px;font-size:0.85rem;font-weight:600;color:#856404',
+    'margin-bottom:10px;display:flex;align-items:center;gap:8px'
+  ].join(';');
+  indicador.innerHTML = `📅 Pedido agendado${DATA_AGENDAMENTO ? ` para ${DATA_AGENDAMENTO}` : ''}`;
+
+  const lista = document.getElementById('carrinho-lista');
+  if (lista && lista.parentElement) {
+    lista.parentElement.insertBefore(indicador, lista);
+  }
+}
+
 async function renderMenu() {
   const nav = document.getElementById('category-nav');
   const content = document.getElementById('menu-content');
   
   if(!nav || !content) return;
-
+  
+  
   nav.innerHTML = '';
   content.innerHTML = '';
 
   // Busca Categorias, Subcategorias e Produtos ativos
-  const { data: categsDb } = await supa.from('categorias').select('*').order('ordem');
+  const { data: categsDb } = await supa.from('categorias').select('*').eq('ativo', true).order('ordem');
   let subcatsDb = [];
   try {
     const { data: _subs } = await supa.from('subcategorias').select('*').order('categoria_slug,ordem');
@@ -373,10 +472,12 @@ async function renderMenu() {
   } catch (_) { subcatsDb = []; }
   const { data: produtos } = await supa.from('produtos').select('*')
       .eq('ativo', true)
+      .eq('pausado', false)
       .or('somente_balcao.is.null,somente_balcao.eq.false');
 
   if (!produtos || !categsDb) {
     console.error('Erro ao carregar menu do banco');
+    
     return;
   }
 
@@ -558,10 +659,21 @@ function abrirModal(item) {
     _renderVariacoes(item, cfg, divOptions);
   }
 
-  // Extras (para qualquer tipo)
+  // Extras do produto específico
   const extras = cfg && cfg.extras ? cfg.extras : null;
   if (extras && extras.length > 0) {
     _renderExtras(extras, divOptions);
+  }
+
+  // Opções de preparo (ex: "Batata Frita / Mandioca", "Cru / Flambado")
+  const preparoOpcoes = cfg && cfg.preparo_opcoes ? cfg.preparo_opcoes : [];
+  if (preparoOpcoes.length > 0) {
+    _renderPreparo(preparoOpcoes, divOptions);
+  }
+
+  // Extras globais (adicionais disponíveis para TODOS os produtos)
+  if (EXTRAS_GLOBAIS.length > 0) {
+    _renderExtrasGlobais(EXTRAS_GLOBAIS, divOptions);
   }
 
   // Atualiza preço inicial
@@ -986,6 +1098,42 @@ function _renderExtras(extras, container) {
   container.appendChild(sec);
 }
 
+// Renderiza opções de PREPARO (radio buttons — o cliente escolhe uma opção)
+function _renderPreparo(opcoes, container) {
+  const sec = document.createElement('div');
+  sec.className = 'extras-section preparo-section';
+  sec.innerHTML = `<h5 style="color:#2980b9">🍳 Como deseja o preparo?</h5>`;
+  
+  opcoes.forEach((op, idx) => {
+    const label = document.createElement('label');
+    label.className = 'extra-check-row preparo-row';
+    label.style.cssText = 'cursor:pointer;';
+    label.innerHTML = `
+      <input type="radio" class="preparo-radio-input" name="preparo-opcao" value="${op}" style="accent-color:#2980b9;width:18px;height:18px;margin-right:8px;">
+      <span class="extra-check-label">${op}</span>`;
+    sec.appendChild(label);
+  });
+  container.appendChild(sec);
+}
+
+// Renderiza EXTRAS GLOBAIS (adicionais disponíveis para qualquer produto)
+function _renderExtrasGlobais(extras, container) {
+  if (!extras || extras.length === 0) return;
+  const sec = document.createElement('div');
+  sec.className = 'extras-section extras-globais-section';
+  sec.innerHTML = `<h5 style="color:#8e44ad">⭐ Adicionais extras</h5>`;
+  extras.forEach((ex) => {
+    const row = document.createElement('label');
+    row.className = 'extra-check-row';
+    row.innerHTML = `
+      <input type="checkbox" class="extra-check-input" data-preco="${ex.preco || 0}" onchange="_atualizarPrecoPizza()">
+      <span class="extra-check-label">${ex.nome}</span>
+      ${ex.preco > 0 ? `<span class="extra-check-price">+Gs ${(ex.preco).toLocaleString('es-PY')}</span>` : '<span class="extra-check-price" style="color:#27ae60">Grátis</span>'}`;
+    sec.appendChild(row);
+  });
+  container.appendChild(sec);
+}
+
 function fecharModalProduto() {
   document.getElementById('product-modal').classList.remove('active');
 }
@@ -1026,7 +1174,13 @@ function adicionarDoModal() {
   let precoFinal = prodAtual.preco;
 
   if (tipo === 'montavel') {
-    for (let k in itensMontagem) montagem = montagem.concat(itensMontagem[k]);
+    const cfgEtapas = Array.isArray(cfg) ? cfg : (cfg && cfg.etapas ? cfg.etapas : []);
+    for (let k in itensMontagem) {
+      if (itensMontagem[k] && itensMontagem[k].length > 0) {
+        const titulo = cfgEtapas[k] ? cfgEtapas[k].titulo : `Etapa ${parseInt(k)+1}`;
+        montagem.push(`${titulo}: ${itensMontagem[k].join(', ')}`);
+      }
+    }
   }
 
   if (tipo === 'pizza') {
@@ -1087,15 +1241,20 @@ function adicionarDoModal() {
     borda:   _pizzaConfig.bordaConfig?.nome          || null,
   } : null;
 
+  // Captura preparo selecionado
+  const preparoSel = document.querySelector('.preparo-radio-input:checked');
+  const preparoEscolhido = preparoSel ? preparoSel.value : '';
+
   carrinho.push({
     id:       Date.now(),
-    nome:     prodAtual.nome + (variacao ? ` (${variacao})` : ''),
+    nome:     prodAtual.nome,
+    variacao: variacao || '',          // Guardado separado para não duplicar o nome
+    preparo:  preparoEscolhido,        // Opção de preparo (ex: "Flambado", "Batata Frita")
     preco:    precoFinal,
     qtd:      qtd,
     montagem: montagem.filter(Boolean),
     obs:      document.getElementById('modal-obs').value,
     img:      prodAtual._variacaoImg || prodAtual.img,
-    // Metadados estruturados — úteis para exibir no resumo e na cozinha
     ...(pizzaMeta ? { pizzaMeta } : {}),
   });
 
@@ -1172,13 +1331,90 @@ function limparCarrinho() {
   }
 }
 
+
+// ==========================================
+// VALIDAÇÃO DE FORMULÁRIOS
+// ==========================================
+function validarCampo(campoId, regras = {}) {
+  const campo = document.getElementById(campoId);
+  if (!campo) return { valido: false, mensagem: 'Campo não encontrado' };
+
+  const valor = campo.value.trim();
+
+  if (regras.obrigatorio && !valor) {
+    marcarErro(campo, 'Este campo é obrigatório');
+    return { valido: false, mensagem: 'Campo obrigatório' };
+  }
+
+  if (regras.minimo && valor.length < regras.minimo) {
+    marcarErro(campo, `Mínimo de ${regras.minimo} caracteres`);
+    return { valido: false, mensagem: `Mínimo de ${regras.minimo} caracteres` };
+  }
+
+  if (regras.telefone && valor) {
+    const telefoneLimpo = valor.replace(/\D/g, '');
+    if (telefoneLimpo.length < 8) {
+      marcarErro(campo, 'Telefone inválido');
+      return { valido: false, mensagem: 'Telefone inválido' };
+    }
+  }
+
+  removerErro(campo);
+  return { valido: true, valor: valor };
+}
+
+function marcarErro(campo, mensagem) {
+  campo.classList.add('erro-validacao');
+  campo.style.borderColor = '#e74c3c';
+
+  // Procura ou cria mensagem de erro
+  let msgEl = campo.parentElement.querySelector('.msg-erro');
+  if (!msgEl) {
+    msgEl = document.createElement('span');
+    msgEl.className = 'msg-erro';
+    msgEl.style.cssText = 'color: #e74c3c; font-size: 0.8rem; margin-top: 4px; display: block;';
+    campo.parentElement.appendChild(msgEl);
+  }
+  msgEl.textContent = mensagem;
+}
+
+function removerErro(campo) {
+  campo.classList.remove('erro-validacao');
+  campo.style.borderColor = '';
+  const msgEl = campo.parentElement.querySelector('.msg-erro');
+  if (msgEl) msgEl.remove();
+}
+
+function limparTodosErros() {
+  document.querySelectorAll('.erro-validacao').forEach(campo => {
+    removerErro(campo);
+  });
+}
+
+// ==========================================
 // ==========================================
 // 7. CHECKOUT E VALIDAÇÃO
 // ==========================================
 function abrirCheckout() {
   if (carrinho.length === 0) return alert('Carrinho vazio!');
+
+  // Verifica se a loja está aberta (se não estiver em modo agendamento)
+  if (!MODO_AGENDAMENTO) {
+    const statusLoja = verificarLojaAbertaParaPedido();
+    if (!statusLoja.aberto) {
+      mostrarAlertaLojaFechada(statusLoja.proximoDia);
+      return;
+    }
+  }
+
   renderCarrinho();
   renderUpsell();
+
+  // Mostra indicador de agendamento se ativo
+  if (MODO_AGENDAMENTO) {
+    mostrarIndicadorAgendamento();
+  }
+
   document.getElementById('checkout-modal').classList.add('active');
 }
 
@@ -1192,7 +1428,6 @@ function renderCarrinho() {
 
   carrinho.forEach((item, idx) => {
     const totalItem = item.preco * item.qtd;
-    // Pizza: exibe tamanho/sabores/borda de forma estruturada quando disponível
     let detalhes = '';
     if (item.pizzaMeta) {
       const m = item.pizzaMeta;
@@ -1201,8 +1436,18 @@ function renderCarrinho() {
       if (m.sabores && m.sabores.length > 0) partes.push(`🍕 ${m.sabores.join(' / ')}`);
       if (m.borda) partes.push(`🧀 ${m.borda}`);
       detalhes = `<br><small style="color:#888">${partes.join(' · ')}</small>`;
-    } else if (item.montagem && item.montagem.length > 0) {
-      detalhes = `<br><small style="color:#888">${item.montagem.join(', ')}</small>`;
+    } else {
+      // Variação (ex: "Combo Grande") — aparece como badge separado, não duplica o nome
+      if (item.variacao) {
+        detalhes += `<br><small style="color:#FF441F;font-weight:600">▸ ${item.variacao}</small>`;
+      }
+      // Preparo (ex: "Flambado", "Batata Frita")
+      if (item.preparo) {
+        detalhes += `<br><small style="color:#2980b9;font-weight:600">🍳 ${item.preparo}</small>`;
+      }
+      if (item.montagem && item.montagem.length > 0) {
+        detalhes += `<br><small style="color:#888">${item.montagem.join(', ')}</small>`;
+      }
     }
     const obs = item.obs ? `<br><small style="color:#666"><strong>Obs:</strong> ${item.obs}</small>` : '';
 
@@ -1215,10 +1460,14 @@ function renderCarrinho() {
           ${obs}
           <div class="cart-item-price">Gs ${totalItem.toLocaleString('es-PY')}</div>
         </div>
-        <div class="qty-mini">
-          <button onclick="mudarQtdCarrinho(${idx}, -1)">−</button>
-          <span>${item.qtd}</span>
-          <button onclick="mudarQtdCarrinho(${idx}, 1)">+</button>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <div class="qty-mini">
+            <button onclick="mudarQtdCarrinho(${idx}, -1)">−</button>
+            <span>${item.qtd}</span>
+            <button onclick="mudarQtdCarrinho(${idx}, 1)">+</button>
+          </div>
+          <button onclick="removerItemCarrinho(${idx})" title="Remover item"
+            style="background:none;border:none;cursor:pointer;color:#e74c3c;font-size:1.1rem;padding:2px 6px;">🗑️</button>
         </div>
       </div>
     `;
@@ -1230,7 +1479,13 @@ function renderCarrinho() {
 function mudarQtdCarrinho(idx, delta) {
   if (idx < 0 || idx >= carrinho.length) return;
   carrinho[idx].qtd = Math.max(1, carrinho[idx].qtd + delta);
-  if (carrinho[idx].qtd === 0) carrinho.splice(idx, 1);
+  renderCarrinho();
+  updateUI();
+}
+
+function removerItemCarrinho(idx) {
+  if (idx < 0 || idx >= carrinho.length) return;
+  carrinho.splice(idx, 1);
   renderCarrinho();
   updateUI();
 }
@@ -1276,7 +1531,7 @@ function aplicarCupom() {
   // Cupons de exemplo - você pode buscar do banco de dados
   const cupons = {
     'BEMVINDO10': { tipo: 'percentual', valor: 10, min: 50000 },
-    'SUSHI20': { tipo: 'percentual', valor: 20, min: 100000 },
+    'CANTINHO20': { tipo: 'percentual', valor: 20, min: 100000 },
     'FRETEGRATIS': { tipo: 'frete', valor: 0, min: 0 }
   };
   
@@ -1360,6 +1615,8 @@ function mudarModoEntrega(modo) {
   modoEntrega = modo;
   document.getElementById('btn-delivery').classList.toggle('active', modo === 'delivery');
   document.getElementById('btn-retirada').classList.toggle('active', modo === 'retirada');
+  const btnLocal = document.getElementById('btn-local');
+  if (btnLocal) btnLocal.classList.toggle('active', modo === 'local');
   document.getElementById('box-endereco').style.display = modo === 'delivery' ? 'block' : 'none';
   atualizarTotalCheckout();
 }
@@ -1373,15 +1630,17 @@ function verificarPagamento() {
   const pag = document.getElementById('forma-pag').value;
   const infoDiv = document.getElementById('info-pagamento-extra');
   const boxTroco = document.getElementById('box-troco');
+  const boxMulti = document.getElementById('box-multipagamento');
+  const selectPag = document.getElementById('forma-pag');
 
   infoDiv.style.display = 'none';
   boxTroco.classList.add('hidden');
+  if (boxMulti) boxMulti.style.display = 'none';
 
   if (pag === 'Efetivo') {
     boxTroco.classList.remove('hidden');
   } else if (pag === 'Pix') {
     infoDiv.style.display = 'block';
-    // Calcula valor em BRL baseado no total atual
     const totalItens = carrinho.reduce((a, i) => a + i.preco * i.qtd, 0);
     let freteAplicado = modoEntrega === 'delivery' ? freteCalculado : 0;
     let desconto = 0;
@@ -1391,11 +1650,208 @@ function verificarPagamento() {
     }
     const totalGs = totalItens - desconto + freteAplicado;
     const totalBrl = COTACAO_REAL > 0 ? (totalGs / COTACAO_REAL).toFixed(2) : '---';
-    infoDiv.innerHTML = `<strong>💳 Chave Pix:</strong><br>${CHAVE_PIX}<br><small>Titular: ${NOME_PIX}</small><br><strong style="color:#c0392b;font-size:1rem">💰 Valor a pagar: R$ ${totalBrl}</strong><br><small style="color:#888">(Gs ${totalGs.toLocaleString('es-PY')} ÷ ${COTACAO_REAL})</small>`;
+    infoDiv.innerHTML = `<strong>💳 Chave Pix:</strong><br>${CHAVE_PIX}<br><small>Titular: ${NOME_PIX}</small><br><strong style="color:#27ae60;font-size:1rem">💰 Valor: R$ ${totalBrl}</strong>`;
   } else if (pag === 'Transferencia') {
     infoDiv.style.display = 'block';
     infoDiv.innerHTML = `<strong>🏦 Dados para Transferência:</strong><br>${DADOS_ALIAS}<br>${ALIAS_PY}`;
+  } else if (pag === 'Multipagamento') {
+    if (boxMulti) {
+      boxMulti.style.display = 'block';
+      // Esconde o select enquanto está no modo multi
+      selectPag.style.display = 'none';
+      // Inicializa com 2 formas se ainda não há nenhuma
+      const partes = document.getElementById('multi-partes');
+      if (partes && partes.children.length === 0) {
+        adicionarPartePagamento(); // 1ª forma
+        adicionarPartePagamento(); // 2ª forma
+      }
+      atualizarRestanteMulti();
+    }
+    return; // Não chama atualizarRestanteMulti de novo
   }
+
+  // Garante que o select volte a aparecer se não for Multipagamento
+  if (selectPag) selectPag.style.display = '';
+}
+
+// ==========================================
+// MULTIPAGAMENTO
+// ==========================================
+let _multiContador = 0;
+
+const METODOS_PAG = [
+  { value: 'Efetivo',       label: '💵 Efectivo' },
+  { value: 'Cartao',        label: '💳 Tarjeta' },
+  { value: 'Pix',           label: '🟢 Pix (BR)' },
+  { value: 'Transferencia', label: '🏦 Alias/Transferencia' },
+];
+
+function _getTotalPedidoAtual() {
+  const totalItens = carrinho.reduce((a, i) => a + i.preco * i.qtd, 0);
+  let freteAplicado = modoEntrega === 'delivery' ? freteCalculado : 0;
+  let desconto = 0;
+  if (cupomAplicado) {
+    if (cupomAplicado.tipo === 'percentual') desconto = Math.round(totalItens * (cupomAplicado.valor / 100));
+    else if (cupomAplicado.tipo === 'frete') freteAplicado = 0;
+  }
+  return totalItens - desconto + freteAplicado;
+}
+
+function voltarPagamentoUnico() {
+  // Reseta o select para "nada selecionado" e esconde o painel multi
+  document.getElementById('forma-pag').value = '';
+  document.getElementById('box-multipagamento').style.display = 'none';
+  // Limpa as partes
+  document.getElementById('multi-partes').innerHTML = '';
+  _multiContador = 0;
+  verificarPagamento();
+}
+
+function adicionarPartePagamento() {
+  const container = document.getElementById('multi-partes');
+  if (!container) return;
+  _multiContador++;
+  const id = _multiContador;
+  const ordinal = ['1ª', '2ª', '3ª', '4ª', '5ª'][id - 1] || `${id}ª`;
+
+  const metodoOptions = METODOS_PAG.map(m =>
+    `<option value="${m.value}">${m.label}</option>`
+  ).join('');
+
+  const card = document.createElement('div');
+  card.id = `multi-parte-${id}`;
+  card.style.cssText = `
+    background: white;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 10px;
+    position: relative;
+  `;
+  card.innerHTML = `
+    <div style="font-size:0.78rem; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">
+      ${ordinal} FORMA
+    </div>
+    <div style="display:flex; gap:10px; align-items:flex-start;">
+      <select id="multi-metodo-${id}" onchange="verificarPartePix(${id})"
+          style="flex:1.5; padding:10px; border:1.5px solid #e0e0e0; border-radius:8px; font-size:0.9rem; background:white; font-weight:600;">
+        <option value="">Selecionar forma...</option>
+        ${metodoOptions}
+      </select>
+      <div style="flex:1; position:relative;">
+        <span style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:#888; font-size:0.85rem; pointer-events:none;">Gs</span>
+        <input type="number" id="multi-valor-${id}" placeholder="0" min="0" step="1000"
+            oninput="atualizarRestanteMulti()"
+            style="width:100%; padding:10px 10px 10px 30px; border:1.5px solid #e0e0e0; border-radius:8px; font-size:0.95rem; font-weight:700; box-sizing:border-box;">
+      </div>
+      ${id > 2 ? `<button type="button" onclick="removerPartePagamento(${id})"
+          style="background:#ffeaea; color:#e74c3c; border:none; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:0.9rem; flex-shrink:0;">✕</button>` : ''}
+    </div>
+    <!-- Info Efetivo (troco) -->
+    <div id="multi-troco-${id}" style="display:none; margin-top:8px;">
+      <input type="number" id="multi-troco-val-${id}" placeholder="Troco para (Gs)" min="0" step="1000"
+          style="width:100%; padding:9px; border:1.5px solid #f0a500; border-radius:8px; font-size:0.87rem; box-sizing:border-box;">
+    </div>
+    <!-- Info Pix -->
+    <div id="multi-pix-info-${id}" style="display:none; margin-top:8px; font-size:0.83rem; color:#27ae60; font-weight:600; text-align:right;"></div>
+  `;
+  container.appendChild(card);
+  atualizarRestanteMulti();
+}
+
+// Chamado quando muda o SELECT de método — mostra/esconde troco e info Pix
+// NÃO chama atualizarRestanteMulti (evita loop infinito)
+function verificarPartePix(id) {
+  const metodo = document.getElementById(`multi-metodo-${id}`)?.value;
+  const trocoBox = document.getElementById(`multi-troco-${id}`);
+  if (trocoBox) trocoBox.style.display = metodo === 'Efetivo' ? 'block' : 'none';
+  // Atualiza info pix sem recursar
+  _atualizarPixInfo(id, metodo);
+  // Só chama atualizar ao mudar método, sem recursão
+  atualizarRestanteMulti(false);
+}
+
+// Atualiza o bloco de info Pix para um card específico (sem chamar atualizarRestanteMulti)
+function _atualizarPixInfo(id, metodo) {
+  const pixInfo = document.getElementById(`multi-pix-info-${id}`);
+  if (!pixInfo) return;
+  if (metodo === 'Pix') {
+    const valor = parseFloat(document.getElementById(`multi-valor-${id}`)?.value) || 0;
+    if (valor > 0 && COTACAO_REAL > 0) {
+      const brl = (valor / COTACAO_REAL).toFixed(2);
+      pixInfo.style.display = 'block';
+      pixInfo.innerHTML = `💠 Pix: <strong>R$ ${brl}</strong> &nbsp;·&nbsp; Chave: ${CHAVE_PIX}`;
+    } else {
+      pixInfo.style.display = 'none';
+    }
+  } else {
+    pixInfo.style.display = 'none';
+  }
+}
+
+function removerPartePagamento(id) {
+  const el = document.getElementById(`multi-parte-${id}`);
+  if (el) el.remove();
+  atualizarRestanteMulti(false);
+}
+
+// skipPixUpdate evita recursão: quando chamado DE verificarPartePix, passa false
+function atualizarRestanteMulti(atualizarPix = true) {
+  const total = _getTotalPedidoAtual();
+  const inputs = [...document.querySelectorAll('[id^="multi-valor-"]')];
+  let soma = 0;
+  inputs.forEach(inp => { soma += parseFloat(inp.value) || 0; });
+  
+  const restante = total - soma;
+  const bar = document.getElementById('multi-status-bar');
+  const el = document.getElementById('multi-restante');
+
+  // ── AUTO-FILL: se há exatamente 1 input vazio e ainda sobra valor, preenche ──
+  const inputsVazios = inputs.filter(inp => !inp.value || parseFloat(inp.value) === 0);
+  if (inputsVazios.length === 1 && restante > 0) {
+    inputsVazios[0].value = restante;
+    // Recalcula com o novo valor preenchido
+    soma = total;
+  }
+
+  if (!el || !bar) return;
+  bar.style.display = 'block';
+
+  const diff = total - soma;
+  if (Math.abs(diff) < 1) {
+    bar.style.background = '#eafaf1';
+    bar.style.borderColor = '#27ae60';
+    el.innerHTML = `<span style="color:#27ae60">✅ Total coberto: Gs ${total.toLocaleString('es-PY')}</span>`;
+  } else if (diff > 0) {
+    bar.style.background = '#fff8e6';
+    bar.style.borderColor = '#f0a500';
+    el.innerHTML = `<span style="color:#e67e22">⚠️ Faltam: Gs ${diff.toLocaleString('es-PY')}</span>`;
+  } else {
+    bar.style.background = '#fdf3f3';
+    bar.style.borderColor = '#e74c3c';
+    el.innerHTML = `<span style="color:#e74c3c">❌ Excede: Gs ${Math.abs(diff).toLocaleString('es-PY')}</span>`;
+  }
+
+  // Atualiza info de Pix — SEM chamar verificarPartePix (que chamaria atualizarRestanteMulti de volta)
+  if (atualizarPix) {
+    inputs.forEach(inp => {
+      const idNum = inp.id.replace('multi-valor-', '');
+      const metodo = document.getElementById(`multi-metodo-${idNum}`)?.value;
+      _atualizarPixInfo(idNum, metodo || '');
+    });
+  }
+}
+
+function _coletarMultiPagamento() {
+  const partes = [];
+  document.querySelectorAll('[id^="multi-parte-"]').forEach(div => {
+    const idStr = div.id.replace('multi-parte-', '');
+    const metodo = document.getElementById(`multi-metodo-${idStr}`)?.value || '';
+    const valor = parseFloat(document.getElementById(`multi-valor-${idStr}`)?.value) || 0;
+    const troco = document.getElementById(`multi-troco-val-${idStr}`)?.value || '';
+    if (metodo && valor > 0) partes.push({ metodo, valor, troco: troco || null });
+  });
+  return partes;
 }
 
 async function calcularFrete() {
@@ -1419,19 +1875,37 @@ async function calcularFrete() {
       localCliente = { lat: position.coords.latitude, lng: position.coords.longitude };
       const dist = calcularDistancia(COORD_LOJA.lat, COORD_LOJA.lng, localCliente.lat, localCliente.lng);
       
-      // === NOVA TABELA DE FRETE ===
-      if (dist <= 3.3) {
-        freteCalculado = 6000;
-      } else if (dist <= 4.2) {
-        freteCalculado = 12000;
-      } else if (dist <= 5.2) {
-        freteCalculado = 18000;
-      } else if (dist <= 6.2) {
-        freteCalculado = 24000;
+      // === TABELA DE FRETE DINÂMICA (configurada no admin) ===
+      // Faixas: [0-3], [3.1-4], [4.1-5], ..., [19.1-20], >20 = a combinar
+      const LIMITES_KM = [3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20];
+      let freteIndex = -1;
+      for (let i = 0; i < LIMITES_KM.length; i++) {
+        if (dist <= LIMITES_KM[i]) { freteIndex = i; break; }
+      }
+
+      if (freteIndex === -1) {
+        // Acima de 20km
+        freteCalculado = -1; // sentinela: a combinar
+        msg.innerHTML = `<span style="color:#e67e22">⚠️ Distância: ${dist.toFixed(1)}km — Frete <strong>a combinar</strong> pelo WhatsApp.</span>`;
+        msg.style.color = '#e67e22';
+        boxErro.style.display = 'none';
+        btn.innerText = '✅ Localização OK';
+        btn.disabled = false;
+        atualizarTotalCheckout();
+        return;
+      }
+
+      if (TABELA_FRETE && TABELA_FRETE[freteIndex] !== undefined) {
+        freteCalculado = TABELA_FRETE[freteIndex].loja || 0;
+        freteMotoboy   = TABELA_FRETE[freteIndex].motoboy || 0;
       } else {
-        // Acima de 6.3km: 24.000 + 3.000 por km adicional
-        const kmExtra = Math.ceil(dist - 6.2);
-        freteCalculado = 24000 + (kmExtra * 3000);
+        // Fallback se tabela não configurada: faixas padrão antigas
+        if (dist <= 3.3)       freteCalculado = 6000;
+        else if (dist <= 4.2)  freteCalculado = 12000;
+        else if (dist <= 5.2)  freteCalculado = 18000;
+        else if (dist <= 6.2)  freteCalculado = 24000;
+        else { const kmExtra = Math.ceil(dist - 6.2); freteCalculado = 24000 + (kmExtra * 3000); }
+        freteMotoboy = freteCalculado; // sem tabela, assume igual ao loja
       }
       
       msg.innerHTML = `<span style="color:#27ae60">✅ Distância: ${dist.toFixed(1)}km - Frete: Gs ${freteCalculado.toLocaleString('es-PY')}</span>`;
@@ -1473,6 +1947,54 @@ async function enviarZap() {
 
   if (!nome || !tel || !pag) return alert('Preencha todos os campos obrigatórios!');
 
+  // Troco obrigatório quando pagamento em Efetivo
+  if (pag === 'Efetivo') {
+    const trocoVal = document.getElementById('troco-valor').value.trim();
+    if (!trocoVal || parseFloat(trocoVal.replace(/[^\d]/g, '')) <= 0) {
+      document.getElementById('troco-valor').focus();
+      document.getElementById('troco-valor').style.borderColor = '#e74c3c';
+      return alert('⚠️ Informe o valor em dinheiro para cálculo do troco!');
+    }
+    document.getElementById('troco-valor').style.borderColor = '';
+  }
+
+  // Promoções do dia: bloquear pagamento com Cartão
+  const temPromoItem = carrinho.some(item => {
+    // Verifica se algum item do carrinho pertence a categoria promocoes_do_dia
+    for (const key in MENU) {
+      if (key === 'promocoes_do_dia') {
+        const found = MENU[key].find(m => m.id === item.id || m.nome === item.nome);
+        if (found) return true;
+      }
+    }
+    return false;
+  });
+  if (temPromoItem && pag === 'Cartao') {
+    return alert('⚠️ Produtos da "Promoção do Dia" não aceitam pagamento com Cartão.');
+  }
+
+  // Pedido duplo: bloqueia se mesmo carrinho enviado no último 1h
+  const _agora = Date.now();
+  const _ultimoHash = localStorage.getItem('sushi_last_hash');
+  const _ultimoTs   = parseInt(localStorage.getItem('sushi_last_ts') || '0');
+  const _hashAtual  = carrinho.map(i => i.nome + i.qtd).sort().join('|');
+  if (_ultimoHash === _hashAtual && (_agora - _ultimoTs) < 3600000) {
+    return alert('🚫 Seu pedido anterior foi computado, estamos bloqueando esta segunda tentativa.');
+  }
+
+  // Valida multipagamento
+  if (pag === 'Multipagamento') {
+    const partes = _coletarMultiPagamento();
+    if (partes.length < 2) return alert('Adicione pelo menos 2 formas de pagamento para o multipagamento.');
+    const somaPartes = partes.reduce((s, p) => s + p.valor, 0);
+    const totalCheck = carrinho.reduce((a, i) => a + i.preco * i.qtd, 0)
+                       - (cupomAplicado?.tipo === 'percentual' ? Math.round(carrinho.reduce((a,i)=>a+i.preco*i.qtd,0) * (cupomAplicado.valor/100)) : 0)
+                       + (modoEntrega === 'delivery' ? (cupomAplicado?.tipo === 'frete' ? 0 : freteCalculado) : 0);
+    if (Math.abs(somaPartes - totalCheck) > 1) {
+      return alert(`A soma dos pagamentos (Gs ${somaPartes.toLocaleString('es-PY')}) não confere com o total do pedido (Gs ${totalCheck.toLocaleString('es-PY')}). Ajuste os valores.`);
+    }
+  }
+
   if (modoEntrega === 'delivery' && !localCliente && !document.getElementById('check-sem-gps')?.checked) {
     alert('Por favor, calcule o frete ou marque a opção de enviar localização pelo WhatsApp');
     return;
@@ -1506,11 +2028,25 @@ async function enviarZap() {
       tipo_entrega: modoEntrega,
       subtotal: totalItens,
       frete_cobrado_cliente: modoEntrega === 'delivery' ? freteAplicado : 0,
+      frete_motoboy: modoEntrega === 'delivery' ? freteMotoboy : 0,
       desconto_cupom: desconto,
       total_geral: totalGeral,
       forma_pagamento: pag,
-      obs_pagamento: pag === 'Efetivo' ? document.getElementById('troco-valor').value : '',
-      itens: carrinho.map((i) => ({ n: i.nome, p: i.preco, q: i.qtd, t: i.variacao, m: i.montagem, o: i.obs })),
+      obs_pagamento: pag === 'Efetivo' ? document.getElementById('troco-valor').value
+                   : pag === 'Multipagamento' ? JSON.stringify(_coletarMultiPagamento())
+                   : '',
+      itens: carrinho.map((i) => ({
+        n: i.nome,
+        nome: i.nome,             // alias legível para admin/motoboy
+        p: i.preco,
+        q: i.qtd,
+        qtd: i.qtd,               // alias legível
+        t: i.variacao || '',
+        pr: i.preparo || '',
+        m: i.montagem,
+        o: i.obs,
+        categoria_slug: i.categoria_slug || i.cat || ''  // para filtro de bebidas no motoboy
+      })),
       endereco_entrega: ref,
       geo_lat: localCliente ? localCliente.lat.toString() : null,
       geo_lng: localCliente ? localCliente.lng.toString() : null,
@@ -1552,16 +2088,23 @@ async function enviarZap() {
   const idDisplay = numeroPedido || 'TEMP';
   
   // 3. Monta Mensagem WhatsApp
-  let msg = `🍣 PEDIDO #${idDisplay} - SUSHITERIA\n`;
+  let msg = `🇧🇷 PEDIDO #${idDisplay} - CANTINHO BRASILEIRO\n`;
   msg += `--------------------------\n`;
   msg += `👤 Cliente: ${nome}\n`;
   msg += `📱 Tel: ${telCompleto}\n`;
-  msg += `🛵 Tipo: ${modoEntrega === 'delivery' ? 'DELIVERY' : 'RETIRADA'}\n`;
+  msg += `🛵 Tipo: ${modoEntrega === 'delivery' ? 'DELIVERY' : modoEntrega === 'local' ? 'COMER NO LOCAL 🍽️' : 'RETIRADA'}\n`;
 
   if (modoEntrega === 'delivery') {
-    if (localCliente && freteAplicado > 0) {
+    if (localCliente) {
       msg += `📍 Maps: https://maps.google.com/?q=${localCliente.lat},${localCliente.lng}\n`;
-      msg += `🛵 Delivery: Gs ${freteAplicado.toLocaleString('es-PY')}\n`;
+      // Frete real (distância) sempre mostrado para motoboy, mesmo se cliente ganhou grátis
+      const _freteReal = freteCalculado;
+      const _fretePago = freteAplicado;
+      if (_freteReal > 0 && _fretePago === 0) {
+        msg += `🛵 Delivery: FRETE GRÁTIS (valor: Gs ${_freteReal.toLocaleString('es-PY')})\n`;
+      } else if (_freteReal > 0) {
+        msg += `🛵 Delivery: Gs ${_fretePago.toLocaleString('es-PY')}\n`;
+      }
     } else if (usouPlanoB) {
       msg += `📍 *Localização:* Enviarei aqui no WhatsApp 📎\n`;
       msg += `🛵 *Delivery:* A COMBINAR\n`;
@@ -1572,7 +2115,8 @@ async function enviarZap() {
   msg += `--------------------------\n`;
   carrinho.forEach((item) => {
     msg += `${item.qtd}x ${item.nome}`;
-    if (item.variacao) msg += ` (${item.variacao})`;
+    if (item.variacao) msg += ` — ${item.variacao}`;
+    if (item.preparo) msg += ` [${item.preparo}]`;
     msg += `\n`;
     if (item.montagem && item.montagem.length > 0) msg += `   + ${item.montagem.join(', ')}\n`;
     if (item.obs) msg += `   Obs: ${item.obs}\n`;
@@ -1595,6 +2139,14 @@ async function enviarZap() {
   if (pag === 'Efetivo') {
      const trocoVal = document.getElementById('troco-valor').value;
      msg += `💰 Pagamento: Efetivo (Troco p/: ${trocoVal})\n`;
+  } else if (pag === 'Multipagamento') {
+     const partes = _coletarMultiPagamento();
+     msg += `💰 Pagamento dividido (${partes.length} formas):\n`;
+     partes.forEach((p, i) => {
+       msg += `   ${i+1}. ${p.metodo}: Gs ${p.valor.toLocaleString('es-PY')}`;
+       if (p.troco) msg += ` (Troco p/ Gs ${parseFloat(p.troco).toLocaleString('es-PY')})`;
+       msg += '\n';
+     });
   } else {
      msg += `💰 Pagamento: ${pag}\n`;
   }
@@ -1604,13 +2156,26 @@ async function enviarZap() {
       if(pag === 'Pix') {
           const totalBrl = COTACAO_REAL > 0 ? (totalGeral / COTACAO_REAL).toFixed(2) : '---';
           msg += `\n💠 Chave Pix: ${CHAVE_PIX}\n`;
-          msg += `💰 Valor em Reais: R$ ${totalBrl} (Gs ${totalGeral.toLocaleString('es-PY')} ÷ ${COTACAO_REAL})\n`;
+          msg += `💰 Valor em Reais: R$ ${totalBrl}\n`;
       }
       if(pag === 'Transferencia') msg += `\n📎 Alias: ${ALIAS_PY}\n`;
-      
-      msg += `\n⚠️ ATENÇÃO: Envie o comprovante / Enviar comprobante.\n`;
-      
-      msg += `\n⚠️ *ATENÇÃO: SEU PEDIDO SERÁ CONFIRMADO APENAS APÓS O ENVIO DE SEU COMPROVANTE*\n`;
+      msg += `\n⚠️ *Envie o comprovante após o pagamento!*\n`;
+  }
+  
+  // Para multipagamento: avisar sobre Pix ou Transferencia se incluídos
+  if (pag === 'Multipagamento') {
+    const partes = _coletarMultiPagamento();
+    partes.forEach((p, idx) => {
+      if (p.metodo === 'Pix') {
+        const valBrl = COTACAO_REAL > 0 ? (p.valor / COTACAO_REAL).toFixed(2) : '---';
+        msg += `\n💠 Pix (forma ${idx+1}): Chave ${CHAVE_PIX} — R$ ${valBrl}\n`;
+      }
+      if (p.metodo === 'Transferencia') {
+        msg += `\n📎 Alias (forma ${idx+1}): ${ALIAS_PY}\n`;
+      }
+    });
+    const temDigital = partes.some(p => p.metodo === 'Pix' || p.metodo === 'Transferencia');
+    if (temDigital) msg += `\n⚠️ *Envie o(s) comprovante(s) após o pagamento!*\n`;
   }
 
   // Factura
@@ -1618,22 +2183,91 @@ async function enviarZap() {
       msg += `\n📄 RUC: ${document.getElementById('cli-ruc').value}\nRazão: ${document.getElementById('cli-zao').value}\n`;
   }
 
-  // Envia
+  // Salva hash anti-duplicata ANTES de enviar
+  const _hashFinal = carrinho.map(i => i.nome + i.qtd).sort().join('|');
+  localStorage.setItem('sushi_last_hash', _hashFinal);
+  localStorage.setItem('sushi_last_ts',   Date.now().toString());
+
+  // Modal de confirmação 5s antes de abrir WhatsApp
+  await _mostrarModalEnvio(msg, numeroPedido);
+}
+
+// Modal: "Seu pedido será validado somente após enviar no WhatsApp"
+function _mostrarModalEnvio(msg, numeroPedido) {
+  return new Promise((resolve) => {
+    const _old = document.getElementById('modal-envio-zap');
+    if (_old) _old.remove();
+
+    // Injeta animação de pulsar (só uma vez)
+    if (!document.getElementById('zap-pulse-style')) {
+      const st = document.createElement('style');
+      st.id = 'zap-pulse-style';
+      st.textContent = `
+        @keyframes zapPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(37,211,102,0.7); transform: scale(1); }
+          50%  { box-shadow: 0 0 0 14px rgba(37,211,102,0); transform: scale(1.03); }
+          100% { box-shadow: 0 0 0 0 rgba(37,211,102,0); transform: scale(1); }
+        }
+        #btn-abrir-zap { animation: zapPulse 1.2s ease-in-out infinite; }
+      `;
+      document.head.appendChild(st);
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-envio-zap';
+    modal.style.cssText = [
+      'position:fixed;inset:0;z-index:99999',
+      'background:rgba(0,0,0,0.75)',
+      'display:flex;align-items:center;justify-content:center',
+      'padding:20px;box-sizing:border-box'
+    ].join(';');
+    modal.innerHTML = `
+      <div style="background:white;border-radius:20px;padding:30px 24px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:3.5rem;margin-bottom:10px">📱</div>
+        <h3 style="margin:0 0 8px;font-size:1.2rem;color:#1a1a2e">Pedido registrado! ✅</h3>
+        <p style="margin:0 0 20px;font-size:0.93rem;color:#555;line-height:1.55">
+          Para <strong>confirmar seu pedido</strong>, toque no botão abaixo e envie a mensagem no WhatsApp.
+          <br><span style="color:#e74c3c;font-weight:700">Sem o envio, o pedido não será aceito.</span>
+        </p>
+        <button id="btn-abrir-zap"
+          style="width:100%;padding:18px;background:#25D366;color:white;border:none;border-radius:14px;font-size:1.1rem;font-weight:800;cursor:pointer;letter-spacing:0.3px;">
+          <i class="fab fa-whatsapp"></i> &nbsp;Enviar mensagem no WhatsApp
+        </button>
+        <p style="margin:14px 0 0;font-size:0.75rem;color:#aaa;">Este aviso não fecha sozinho. Envie a mensagem para continuar.</p>
+      </div>`;
+    document.body.appendChild(modal);
+
+    document.getElementById('btn-abrir-zap').onclick = () => {
+      _abrirZapEFechar(msg, numeroPedido, modal, resolve);
+    };
+  });
+}
+
+function _abrirZapEFechar(msg, numeroPedido, modal, resolve) {
   window.open(`https://wa.me/${FONE_LOJA}?text=${encodeURIComponent(msg)}`, '_blank');
+  if (modal) modal.remove();
 
   // Limpa carrinho e fecha checkout
   carrinho = [];
   cupomAplicado = null;
+  MODO_AGENDAMENTO = false;
+  DATA_AGENDAMENTO = null;
+  const indicador = document.getElementById('indicador-agendamento');
+  if (indicador) indicador.remove();
+
+  // Limpa backup imediatamente para não restaurar na próxima visita
+  try {
+    localStorage.removeItem('sushi_carrinho_backup');
+    localStorage.removeItem('sushi_carrinho_backup_time');
+  } catch(e) {}
+
   updateUI();
   fecharCheckout();
-  
-  // Mostra alerta e card de tracking
-  alert('✅ Pedido Enviado! Agora você pode acompanhar seu pedido abaixo.');
-  
-  // Mostra card de tracking
-  if (numeroPedido) {
-    mostrarCardTracking(numeroPedido);
-  }
+
+  // Card de tracking
+  if (numeroPedido) mostrarCardTracking(numeroPedido);
+
+  resolve();
 }
 
 // ==========================================
@@ -1762,7 +2396,7 @@ function _iniciarPollingTracking(pedidoId, uid) {
 
             // Notificação push
             if ('Notification' in window && Notification.permission === 'granted' && TRACKER_STEPS[data.status]) {
-                new Notification('Cantinho Brasileiro Delivery 🍣', {
+                new Notification('Cantinho Brasileiro 🇧🇷', {
                     body: TRACKER_STEPS[data.status].msg,
                     icon: 'https://media.bio.site/sites/79CC2018-24E6-48C4-A856-4C1E36908B60/AWwTtFWnmuqVysXARE2MRX.png'
                 });
@@ -2062,11 +2696,16 @@ function atualizarTrackingVisual(status, motoboy) {
         }
     }
 
-    // Botão confirmar recebimento — aparece ao sair para entrega, some nos outros status
+    // Limpa botões dinâmicos anteriores
     const _trackResult = document.getElementById('track-result');
-    const _btnConfirmar = document.getElementById('btn-confirmar-entrega');
+    ['btn-confirmar-entrega','btn-editar-pedido','btn-cancelar-pedido'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    });
+
     if (status === 'saiu_entrega') {
-        if (_trackResult && !_btnConfirmar) {
+        // Botão confirmar recebimento
+        if (_trackResult) {
             const _btn = document.createElement('button');
             _btn.id = 'btn-confirmar-entrega';
             _btn.onclick = confirmarEntregaCliente;
@@ -2081,8 +2720,119 @@ function atualizarTrackingVisual(status, motoboy) {
                 iniciarTimerAutoConfirmacao(_pedidoLocal);
             }
         }
-    } else if (_btnConfirmar) {
-        _btnConfirmar.remove();
+    } else if (status === 'pendente') {
+        // Botão editar pedido (só enquanto pendente)
+        if (_trackResult) {
+            const _btnEdit = document.createElement('button');
+            _btnEdit.id = 'btn-editar-pedido';
+            _btnEdit.onclick = abrirEdicaoPedido;
+            _btnEdit.style.cssText = 'width:100%;margin-top:10px;padding:12px 0;background:linear-gradient(135deg,#f39c12,#e67e22);color:white;border:none;border-radius:12px;font-weight:700;font-size:0.95rem;cursor:pointer;box-shadow:0 4px 12px rgba(243,156,18,0.35)';
+            _btnEdit.innerHTML = '✏️ Editar Pedido';
+            _trackResult.appendChild(_btnEdit);
+        }
+    }
+
+    // Botão cancelar — disponível em pendente e em_preparo
+    if (['pendente','em_preparo'].includes(status) && _trackResult) {
+        const _btnCancel = document.createElement('button');
+        _btnCancel.id = 'btn-cancelar-pedido';
+        _btnCancel.onclick = solicitarCancelamentoCliente;
+        _btnCancel.style.cssText = 'width:100%;margin-top:8px;padding:10px 0;background:transparent;color:#e74c3c;border:1.5px solid #e74c3c;border-radius:12px;font-weight:600;font-size:0.85rem;cursor:pointer;';
+        _btnCancel.innerHTML = '🚫 Solicitar Cancelamento';
+        _trackResult.appendChild(_btnCancel);
+    }
+}
+
+// ── EDIÇÃO DE PEDIDO PELO CLIENTE ────────────────────────────────
+function abrirEdicaoPedido() {
+    const pedidoId = localStorage.getItem('sushi_pedido_id');
+    if (!pedidoId) return;
+
+    // Fecha tracking e abre carrinho com itens atuais
+    const modal = document.createElement('div');
+    modal.id = 'modal-edicao-pedido';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
+    modal.innerHTML = `
+      <div style="background:white;border-radius:20px;padding:28px 22px;max-width:400px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+        <div style="font-size:2.5rem;margin-bottom:12px">✏️</div>
+        <h3 style="margin:0 0 10px;font-size:1.1rem;color:#1a1a2e">Editar Pedido</h3>
+        <p style="margin:0 0 16px;font-size:0.88rem;color:#555;line-height:1.5">
+          Seu pedido ainda não foi aceito. Você pode:<br>
+          <strong>• Adicionar ou remover itens</strong><br>
+          <strong>• Alterar observações</strong>
+        </p>
+        <div style="background:#fff8e6;border:1.5px solid #f0a500;border-radius:10px;padding:12px;margin-bottom:18px;font-size:0.82rem;color:#855;text-align:left">
+          ⚠️ Ao editar, a nova versão do pedido será enviada via WhatsApp para confirmação da loja. O pedido atual permanece registrado até a loja confirmar a alteração.
+        </div>
+        <button onclick="iniciarEdicaoCarrinho(${pedidoId})" style="width:100%;padding:13px;background:linear-gradient(135deg,#f39c12,#e67e22);color:white;border:none;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.95rem;margin-bottom:10px">
+          ✏️ Editar meu pedido
+        </button>
+        <button onclick="document.getElementById('modal-edicao-pedido').remove()" style="width:100%;padding:10px;background:transparent;color:#999;border:1.5px solid #ddd;border-radius:12px;cursor:pointer;font-size:0.85rem">
+          Cancelar
+        </button>
+      </div>`;
+    document.body.appendChild(modal);
+}
+
+async function iniciarEdicaoCarrinho(pedidoId) {
+    document.getElementById('modal-edicao-pedido')?.remove();
+
+    // Busca o pedido atual para pré-carregar itens
+    const { data: p } = await supa.from('pedidos').select('itens,obs_geral').eq('id', pedidoId).single();
+    
+    if (!p) return alert('Pedido não encontrado.');
+
+    // Pré-carrega itens no carrinho atual
+    if (p.itens && Array.isArray(p.itens)) {
+        carrinho = p.itens.map(i => ({
+            nome: i.nome || i.n,
+            preco: i.preco || i.p || 0,
+            qtd: i.qtd || i.q || 1,
+            variacao: i.variacao || i.t || '',
+            preparo: i.preparo || i.pr || '',
+            montagem: i.montagem || i.m || [],
+            obs: i.obs || i.o || '',
+            img: i.img || '',
+            categoria_slug: i.categoria_slug || ''
+        }));
+        updateUI();
+    }
+
+    // Abre o checkout com nota de edição
+    abrirCheckout();
+
+    // Adiciona banner de aviso no topo do checkout
+    setTimeout(() => {
+        const checkout = document.getElementById('checkout-panel') || document.querySelector('.checkout-container');
+        if (checkout) {
+            const banner = document.createElement('div');
+            banner.id = 'banner-edicao';
+            banner.style.cssText = 'background:#fff3cd;border:1.5px solid #f0a500;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:#7a5100;font-weight:600';
+            banner.innerHTML = '✏️ <strong>Modo Edição</strong> — Modifique seus itens e clique em Enviar Pedido. A loja receberá a versão atualizada.';
+            checkout.insertBefore(banner, checkout.firstChild);
+        }
+    }, 100);
+}
+
+// ── SOLICITAR CANCELAMENTO PELO CLIENTE (via tracking) ──────────
+async function solicitarCancelamentoCliente() {
+    const pedidoId = localStorage.getItem('sushi_pedido_id');
+    if (!pedidoId) return;
+    
+    const motivo = prompt('Motivo do cancelamento (obrigatório):');
+    if (!motivo || !motivo.trim()) return;
+
+    const { error } = await supa.from('pedidos').update({
+        cancelamento_solicitado: true,
+        cancelamento_motivo: motivo.trim(),
+        cancelamento_solicitado_por: 'cliente',
+        cancelamento_solicitado_em: new Date().toISOString()
+    }).eq('id', parseInt(pedidoId));
+
+    if (error) {
+        alert('Erro ao solicitar cancelamento. Contate a loja pelo WhatsApp.');
+    } else {
+        alert('✅ Solicitação enviada! A loja irá avaliar e responder em breve.');
     }
 }
 
@@ -2141,3 +2891,77 @@ function toggleSaborPizza(saborObj, maxSabores) {
     renderizarSaboresSelecionados(); // Função que pinta a pizza
     calcularTotalPizza();
 }
+
+// ==========================================
+// DETECÇÃO DE CONEXÃO
+// ==========================================
+function initDeteccaoConexao() {
+  // Mostra alerta quando fica offline
+  window.addEventListener('offline', () => {
+    mostrarToast('⚠️ Sem conexão com a internet. Algumas funcionalidades podem não funcionar.', 'warning', 5000);
+  });
+
+  // Mostra alerta quando volta online
+  window.addEventListener('online', () => {
+    mostrarToast('✅ Conexão restaurada!', 'success', 3000);
+    // Recarrega dados
+    verificarHorario();
+  });
+}
+
+// Inicializa detecção de conexão
+initDeteccaoConexao();
+
+// ==========================================
+
+// ==========================================
+// AUTO-SALVAMENTO DO CARRINHO
+// ==========================================
+function salvarCarrinhoLocal() {
+  try {
+    if (carrinho && carrinho.length > 0) {
+      localStorage.setItem('sushi_carrinho_backup', JSON.stringify(carrinho));
+      localStorage.setItem('sushi_carrinho_backup_time', new Date().toISOString());
+    } else {
+      localStorage.removeItem('sushi_carrinho_backup');
+      localStorage.removeItem('sushi_carrinho_backup_time');
+    }
+  } catch (e) {
+    console.warn('Não foi possível salvar backup do carrinho:', e);
+  }
+}
+
+function restaurarCarrinhoBackup() {
+  try {
+    const backup = localStorage.getItem('sushi_carrinho_backup');
+    const backupTime = localStorage.getItem('sushi_carrinho_backup_time');
+
+    if (backup && backupTime) {
+      const tempoBackup = new Date(backupTime);
+      const agora = new Date();
+      const diffHoras = (agora - tempoBackup) / (1000 * 60 * 60);
+
+      // Só restaura se o backup tiver menos de 24 horas
+      if (diffHoras < 24) {
+        const carrinhoSalvo = JSON.parse(backup);
+        if (carrinhoSalvo && carrinhoSalvo.length > 0) {
+          if (confirm('Você tem itens no carrinho de uma sessão anterior. Deseja restaurá-los?')) {
+            carrinho = carrinhoSalvo;
+            updateUI();
+            mostrarToast('✅ Carrinho restaurado!', 'success');
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Não foi possível restaurar backup do carrinho:', e);
+  }
+}
+
+// Salva carrinho a cada mudança
+setInterval(salvarCarrinhoLocal, 5000); // A cada 5 segundos
+
+// Tenta restaurar carrinho ao carregar
+setTimeout(restaurarCarrinhoBackup, 1000);
+
+// ==========================================
