@@ -862,6 +862,7 @@ function _selecionarDivisao(n) {
           ${s.img ? `<img src="${s.img}" class="pizza-sabor-img" alt="${s.nome}">` : `<div class="pizza-sabor-emoji">🍕</div>`}
           <div class="pizza-sabor-info">
             <div class="pizza-sabor-nome">${s.nome}</div>
+            ${s.desc ? `<div class="pizza-sabor-desc">${s.desc}</div>` : ''}
             ${s.preco ? `<div class="pizza-sabor-preco">Gs ${(s.preco).toLocaleString('es-PY')}</div>` : ''}
           </div>
         </button>`;
@@ -912,11 +913,18 @@ function _revelarPasso4Borda() {
   const p4 = document.getElementById('pizza-passo4');
   if (!p4) return;
 
-  // Monta opções de borda
+  // Preco da borda = definido pelo TAMANHO selecionado (borda_preco)
+  // Retrocompatibilidade: se tamanho nao tem borda_preco, usa b.preco ou p.borda_preco
+  const precoPorTamanho = _pizzaConfig.tamanhoSelecionado?.borda_preco || 0;
+
+  // Monta opcoes de borda (nome da borda; preco vem do tamanho)
   const bordasOpcoes = p.bordas && p.bordas.length > 0
-    ? p.bordas
+    ? p.bordas.map(b => ({
+        nome: b.nome,
+        preco: precoPorTamanho > 0 ? precoPorTamanho : (b.preco || p.borda_preco || 0)
+      }))
     : p.tem_borda
-      ? [{ nome: 'Borda Recheada', preco: p.borda_preco || 0 }]
+      ? [{ nome: 'Borda Recheada', preco: precoPorTamanho || p.borda_preco || 0 }]
       : [];
 
   p4.innerHTML = `<section class="pizza-step">
@@ -947,7 +955,7 @@ function _pizzaSelecionarBorda(nome, preco, el) {
 }
 
 // compatibilidade
-function _selecionarBorda(com) { _pizzaSelecionarBorda(com ? 'Borda Recheada' : null, _pizzaConfig.p?.borda_preco || 0, null); }
+function _selecionarBorda(com) { _pizzaSelecionarBorda(com ? 'Borda Recheada' : null, _pizzaConfig.tamanhoSelecionado?.borda_preco || _pizzaConfig.p?.borda_preco || 0, null); }
 
 /* Resumo em tempo real */
 function _atualizarResumo() {

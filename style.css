@@ -1151,6 +1151,7 @@ footer {
 .pizza-sabor-info { flex: 1; min-width: 0; }
 .pizza-sabor-nome { font-weight: 600; font-size: 0.88rem; color: #333; }
 .pizza-sabor-preco { font-size: 0.75rem; color: #888; margin-top: 1px; }
+.pizza-sabor-desc { font-size: 0.74rem; color: #777; margin-top: 2px; line-height: 1.35; }
 
 /* Tag de fração (1/2, 2/4 etc.) */
 .pizza-fracao-tag {

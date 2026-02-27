@@ -2239,6 +2239,13 @@ select.form-control, select.input-modern {
 .pizza-sabor-main .btn-danger {
     flex-shrink: 0;
 }
+.pizza-sabor-desc-input {
+    resize: vertical;
+    min-height: 44px;
+    font-size: 0.88rem !important;
+    color: #555;
+    margin-bottom: 8px;
+}
 .pizza-sabor-img-row {
     display: flex;
     gap: 8px;
@@ -2548,7 +2555,7 @@ select.form-control, select.input-modern {
 /* ── Pizza Builder — linha de borda ────────────────────────── */
 .pizza-borda-row {
     display: grid;
-    grid-template-columns: 1fr 140px auto;
+    grid-template-columns: 1fr auto auto;
     gap: 8px;
     align-items: center;
     background: #fffbf0;

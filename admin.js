@@ -1752,17 +1752,17 @@ async function salvarProduto() {
       document.querySelectorAll('.pizza-sabor-row').forEach((row) => {
         sabores.push({
           nome: row.querySelector('[data-f="snome"]').value,
+          desc: row.querySelector('[data-f="sdesc"]')?.value?.trim() || '',
           tipo: row.querySelector('[data-f="stipo"]').value,
           img: row.querySelector('[data-f="simg"]')?.value || '',
           preco: 0, // preço agora é definido por categoria no tamanho
         });
       });
-      // Coleta lista de bordas
+      // Coleta lista de bordas (preço agora é por tamanho, não por borda)
       const bordas = [];
       document.querySelectorAll('.pizza-borda-row').forEach((row) => {
         const nome = row.querySelector('[data-f="bnome"]').value.trim();
-        const preco = parseFloat(row.querySelector('[data-f="bpreco"]').value) || 0;
-        if (nome) bordas.push({ nome, preco });
+        if (nome) bordas.push({ nome, preco: 0 });
       });
 
       configFinal.pizza = {
@@ -1772,8 +1772,8 @@ async function salvarProduto() {
           document.getElementById('pizza-tipo-doce').checked ? 'Doce' : null,
         ].filter(Boolean),
         tem_borda: bordas.length > 0,
-        bordas, // lista completa de bordas com nome+preco
-        borda_preco: bordas[0]?.preco || 0, // compatibilidade retroativa
+        bordas, // lista de bordas (só nome; preço vem de tamanhos[].borda_preco)
+        borda_preco: 0, // deprecated — preço agora fica em cada tamanho
         tamanhos,
         sabores,
       };
@@ -2131,10 +2131,7 @@ function addPizzaBorda(dados = {}) {
   row.className = 'pizza-borda-row';
   row.innerHTML = `
     <input data-f="bnome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Cheddar, Catupiry, Chocolate...">
-    <div style="display:flex;align-items:center;gap:4px">
-      <span style="white-space:nowrap;font-size:0.8rem;color:#777">Gs</span>
-      <input data-f="bpreco" type="number" class="form-control" value="${dados.preco || ''}" placeholder="Ex: 8000">
-    </div>
+    <span style="font-size:0.78rem;color:#888;white-space:nowrap">💡 Preço definido por tamanho abaixo</span>
     <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-borda-row').remove()" title="Remover">✕</button>
   `;
   lista.appendChild(row);
@@ -2162,7 +2159,7 @@ function addPizzaTamanho(dados = {}) {
       <div><label>🍕 Tradicional (Gs)</label><input data-f="preco_tradicional" type="number" class="form-control" value="${pTrad}" placeholder="60000"></div>
       <div><label>⭐ Especial (Gs)</label><input data-f="preco_especial" type="number" class="form-control" value="${pEsp}" placeholder="65000"></div>
       <div><label>🍫 Doce (Gs)</label><input data-f="preco_doce" type="number" class="form-control" value="${pDoce}" placeholder="60000"></div>
-      <div><label>🧀 Borda (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="10000"></div>
+      <div><label>🧀 Preço da Borda (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000" title="Preço cobrado por qualquer borda neste tamanho"></div>
     </div>
   `;
   lista.appendChild(row);
@@ -2207,6 +2204,7 @@ function addPizzaSabor(dados = {}) {
       </select>
       <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-sabor-row').remove()" title="Remover">✕</button>
     </div>
+    <textarea data-f="sdesc" class="form-control pizza-sabor-desc-input" rows="2" placeholder="Descrição do sabor (ingredientes, observações...)">${dados.desc || ''}</textarea>
     <div class="pizza-sabor-img-row">
       <img class="pizza-sabor-img-preview" src="${imgSrc}" style="display:${imgSrc ? 'block' : 'none'}" alt="">
       <input data-f="simg" type="text" class="form-control" value="${imgSrc}" placeholder="URL da imagem (ou clique 📷)">
@@ -3710,12 +3708,13 @@ async function carregarConfiguracoes() {
     });
   }
 
-  // Preview do ícone se existir
-  if (data.icone_url) {
-    const prevIcone = document.getElementById('cfg-icone-preview');
-    const boxIcone = document.getElementById('cfg-icone-preview-box');
-    if (prevIcone) prevIcone.src = data.icone_url;
-    if (boxIcone) boxIcone.style.display = 'block';
+  // Preenche o campo de URL do ícone
+  const iconeUrlInput = document.getElementById('cfg-icone-url');
+  const iconePreview = document.getElementById('cfg-icone-preview');
+  if (iconeUrlInput) iconeUrlInput.value = data.icone_url || '';
+  if (iconePreview && data.icone_url) {
+    iconePreview.src = data.icone_url;
+    iconePreview.style.display = 'block';
   }
 
   // Carrega adicionais globais
@@ -3820,15 +3819,16 @@ async function salvarBanner() {
   }
 }
 function previewIcone(input) {
-  if (!input.files || !input.files[0]) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const prev = document.getElementById('cfg-icone-preview');
-    const box = document.getElementById('cfg-icone-preview-box');
-    if (prev) prev.src = e.target.result;
-    if (box) box.style.display = 'block';
-  };
-  reader.readAsDataURL(input.files[0]);
+  const url = input.value?.trim();
+  const prev = document.getElementById('cfg-icone-preview');
+  if (!prev) return;
+  if (url) {
+    prev.src = url;
+    prev.style.display = 'block';
+  } else {
+    prev.src = '';
+    prev.style.display = 'none';
+  }
 }
 
 // =========================================================
@@ -3925,15 +3925,9 @@ async function salvarPersonalizacao() {
     // Se o usuário digitou hex manual, usa ele
     if (corHex && corHex.startsWith('#')) dados.cor_primaria = corHex;
 
-    // Upload do ícone se houver
-    const iconeFile = document.getElementById('cfg-icone-file');
-    if (iconeFile?.files?.length) {
-      const file = iconeFile.files[0];
-      const nomeArq = `icone_loja_${Date.now()}.${file.name.split('.').pop()}`;
-      await supa.storage.from('produtos').upload(nomeArq, file, { upsert: true });
-      const { data: urlData } = supa.storage.from('produtos').getPublicUrl(nomeArq);
-      dados.icone_url = urlData.publicUrl;
-    }
+    // URL do ícone (campo de texto direto)
+    const iconeUrl = document.getElementById('cfg-icone-url')?.value?.trim();
+    if (iconeUrl) dados.icone_url = iconeUrl;
 
     if (Object.keys(dados).length > 0) {
       const { error } = await supa.from('configuracoes').update(dados).gt('id', 0);
