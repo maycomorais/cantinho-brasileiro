@@ -807,11 +807,12 @@
               </div>
             </div>
             <div class="form-group">
-              <label>Ícone da Loja (URL)</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input type="text" id="cfg-icone-url" class="form-control" placeholder="https://..." oninput="previewIcone(this)">
-                <img id="cfg-icone-preview" src="" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:2px solid #ddd;display:none;flex-shrink:0">
-              </div>
+              <label>Ícone da Loja (upload)</label>
+              <input type="file" id="cfg-icone-file" class="form-control" accept="image/*" onchange="previewIcone(this)">
+            </div>
+            <div class="form-group" id="cfg-icone-preview-box" style="display:none">
+              <label>Preview</label>
+              <img id="cfg-icone-preview" src="" style="width:60px;height:60px;object-fit:cover;border-radius:50%;border:2px solid #ddd">
             </div>
           </div>
           <button class="btn btn-primary" onclick="salvarPersonalizacao()" style="margin-top:12px">
@@ -1132,7 +1133,7 @@
           <div style="font-weight:600; font-size:0.9rem; color:#1a6eb5; margin-bottom:8px">
             🕐 Horário de Exibição <small style="font-weight:400; color:#666">(opcional — deixe em branco para exibir sempre)</small>
           </div>
-          <div style="display:flex; gap:12px; align-items:center">
+          <div style="display:flex; gap:12px; align-items:center; margin-bottom:10px">
             <div style="flex:1">
               <label style="font-size:0.82rem; color:#555">Das</label>
               <input type="time" id="cat-hora-inicio" class="form-control" />
@@ -1142,7 +1143,19 @@
               <input type="time" id="cat-hora-fim" class="form-control" />
             </div>
           </div>
-          <small style="color:#888; display:block; margin-top:6px">Ex: almoço das 11:00 às 14:30. Fora desse horário, a categoria fica oculta no cardápio.</small>
+          <div>
+            <label style="font-size:0.82rem; color:#555; display:block; margin-bottom:6px">📅 Dias de exibição <small style="color:#aaa">(deixe todos desmarcados = todos os dias)</small></label>
+            <div style="display:flex; gap:6px; flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="dom"> Dom</label>
+              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="seg"> Seg</label>
+              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="ter"> Ter</label>
+              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="qua"> Qua</label>
+              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="qui"> Qui</label>
+              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="sex"> Sex</label>
+              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="sab"> Sáb</label>
+            </div>
+          </div>
+          <small style="color:#888; display:block; margin-top:6px">Ex: almoço de Seg a Sex das 11:00 às 14:30. Fora desse horário/dia, a categoria fica oculta no cardápio.</small>
         </div>
         <div class="modal-actions">
           <button class="btn btn-primary" onclick="salvarCategoria()">Salvar</button>

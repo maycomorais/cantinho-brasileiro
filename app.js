@@ -527,6 +527,14 @@ async function renderMenu() {
   const minAgora = agora.getHours() * 60 + agora.getMinutes();
 
   function categoriaVisivel(cat) {
+    // Filtro de dias da semana (dom=0 ... sab=6)
+    if (Array.isArray(cat.dias_semana) && cat.dias_semana.length > 0) {
+      const mapa = { dom:0, seg:1, ter:2, qua:3, qui:4, sex:5, sab:6 };
+      const diaAtual = agora.getDay(); // 0=dom
+      const diasNum = cat.dias_semana.map(d => mapa[d]).filter(n => n !== undefined);
+      if (!diasNum.includes(diaAtual)) return false;
+    }
+    // Filtro de horário
     if (!cat.hora_inicio || !cat.hora_fim) return true;
     const [hI, mI] = cat.hora_inicio.split(':').map(Number);
     const [hF, mF] = cat.hora_fim.split(':').map(Number);
@@ -913,16 +921,9 @@ function _revelarPasso4Borda() {
   const p4 = document.getElementById('pizza-passo4');
   if (!p4) return;
 
-  // Preco da borda = definido pelo TAMANHO selecionado (borda_preco)
-  // Retrocompatibilidade: se tamanho nao tem borda_preco, usa b.preco ou p.borda_preco
   const precoPorTamanho = _pizzaConfig.tamanhoSelecionado?.borda_preco || 0;
-
-  // Monta opcoes de borda (nome da borda; preco vem do tamanho)
   const bordasOpcoes = p.bordas && p.bordas.length > 0
-    ? p.bordas.map(b => ({
-        nome: b.nome,
-        preco: precoPorTamanho > 0 ? precoPorTamanho : (b.preco || p.borda_preco || 0)
-      }))
+    ? p.bordas.map(b => ({ nome: b.nome, preco: precoPorTamanho > 0 ? precoPorTamanho : (b.preco || p.borda_preco || 0) }))
     : p.tem_borda
       ? [{ nome: 'Borda Recheada', preco: precoPorTamanho || p.borda_preco || 0 }]
       : [];

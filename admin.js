@@ -1758,7 +1758,7 @@ async function salvarProduto() {
           preco: 0, // preço agora é definido por categoria no tamanho
         });
       });
-      // Coleta lista de bordas (preço agora é por tamanho, não por borda)
+      // Coleta lista de bordas (preco por tamanho)
       const bordas = [];
       document.querySelectorAll('.pizza-borda-row').forEach((row) => {
         const nome = row.querySelector('[data-f="bnome"]').value.trim();
@@ -1772,8 +1772,8 @@ async function salvarProduto() {
           document.getElementById('pizza-tipo-doce').checked ? 'Doce' : null,
         ].filter(Boolean),
         tem_borda: bordas.length > 0,
-        bordas, // lista de bordas (só nome; preço vem de tamanhos[].borda_preco)
-        borda_preco: 0, // deprecated — preço agora fica em cada tamanho
+        bordas, // lista de bordas (preco vem de tamanhos[].borda_preco)
+        borda_preco: 0, // deprecated
         tamanhos,
         sabores,
       };
@@ -2131,7 +2131,7 @@ function addPizzaBorda(dados = {}) {
   row.className = 'pizza-borda-row';
   row.innerHTML = `
     <input data-f="bnome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Cheddar, Catupiry, Chocolate...">
-    <span style="font-size:0.78rem;color:#888;white-space:nowrap">💡 Preço definido por tamanho abaixo</span>
+    <span style="font-size:0.78rem;color:#888;white-space:nowrap">💡 Preço definido por tamanho</span>
     <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-borda-row').remove()" title="Remover">✕</button>
   `;
   lista.appendChild(row);
@@ -2159,7 +2159,7 @@ function addPizzaTamanho(dados = {}) {
       <div><label>🍕 Tradicional (Gs)</label><input data-f="preco_tradicional" type="number" class="form-control" value="${pTrad}" placeholder="60000"></div>
       <div><label>⭐ Especial (Gs)</label><input data-f="preco_especial" type="number" class="form-control" value="${pEsp}" placeholder="65000"></div>
       <div><label>🍫 Doce (Gs)</label><input data-f="preco_doce" type="number" class="form-control" value="${pDoce}" placeholder="60000"></div>
-      <div><label>🧀 Preço da Borda (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000" title="Preço cobrado por qualquer borda neste tamanho"></div>
+      <div><label>🧀 Preço da Borda (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000" title="Preço por tamanho"></div>
     </div>
   `;
   lista.appendChild(row);
@@ -2204,7 +2204,7 @@ function addPizzaSabor(dados = {}) {
       </select>
       <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-sabor-row').remove()" title="Remover">✕</button>
     </div>
-    <textarea data-f="sdesc" class="form-control pizza-sabor-desc-input" rows="2" placeholder="Descrição do sabor (ingredientes, observações...)">${dados.desc || ''}</textarea>
+    <textarea data-f="sdesc" class="form-control pizza-sabor-desc-input" rows="2" placeholder="Descrição do sabor">${dados.desc || ''}</textarea>
     <div class="pizza-sabor-img-row">
       <img class="pizza-sabor-img-preview" src="${imgSrc}" style="display:${imgSrc ? 'block' : 'none'}" alt="">
       <input data-f="simg" type="text" class="form-control" value="${imgSrc}" placeholder="URL da imagem (ou clique 📷)">
@@ -2625,7 +2625,7 @@ async function carregarCategorias() {
     const cJson = JSON.stringify(c).replace(/'/g, '&apos;').replace(/"/g, '&quot;');
     const horarioBadge =
       c.hora_inicio && c.hora_fim
-        ? `<span class="cat-badge cat-badge-horario">🕐 ${c.hora_inicio} – ${c.hora_fim}</span>`
+        ? `<span class="cat-badge cat-badge-horario">🕐 ${c.hora_inicio}–${c.hora_fim}${Array.isArray(c.dias_semana) && c.dias_semana.length ? ' (' + c.dias_semana.join(',') + ')' : ''}</span>`
         : `<span class="cat-badge cat-badge-sempre">✅ Sempre visível</span>`;
 
     const card = document.createElement('div');
@@ -3060,6 +3060,13 @@ function editarCategoria(c) {
 
   document.getElementById('cat-nome').value = c.nome_exibicao;
   document.getElementById('cat-ordem').value = c.ordem;
+  document.getElementById('cat-hora-inicio').value = c.hora_inicio || '';
+  document.getElementById('cat-hora-fim').value = c.hora_fim || '';
+  // Marca os dias salvos
+  const diasSalvos = Array.isArray(c.dias_semana) ? c.dias_semana : [];
+  document.querySelectorAll('.cat-dia-check').forEach(cb => {
+    cb.checked = diasSalvos.includes(cb.value);
+  });
 
   document.getElementById('modal-cat').style.display = 'flex';
 }
@@ -3097,12 +3104,18 @@ async function salvarCategoria() {
 
     if (slugMudou) {
       // 1. Insere novo registro com o novo slug
+      const horaIni = document.getElementById('cat-hora-inicio').value || null;
+      const horaFim = document.getElementById('cat-hora-fim').value || null;
+      const dias = Array.from(document.querySelectorAll('.cat-dia-check:checked')).map(cb => cb.value);
       const { error: insErr } = await supa.from('categorias').insert([
         {
           slug,
           nome: nome,
           nome_exibicao: nome,
           ordem: ordemVal,
+          hora_inicio: horaIni,
+          hora_fim: horaFim,
+          dias_semana: dias.length > 0 ? dias : null,
         },
       ]);
       if (insErr) {
@@ -3128,16 +3141,26 @@ async function salvarCategoria() {
       const { error: delErr } = await supa.from('categorias').delete().eq('slug', slugOriginal);
       erro = delErr;
     } else {
+      const horaIni = document.getElementById('cat-hora-inicio').value || null;
+      const horaFim = document.getElementById('cat-hora-fim').value || null;
+      const dias = Array.from(document.querySelectorAll('.cat-dia-check:checked')).map(cb => cb.value);
       const { error } = await supa
         .from('categorias')
-        .update({ nome: nome, nome_exibicao: nome, ordem: ordemVal })
+        .update({ nome: nome, nome_exibicao: nome, ordem: ordemVal,
+                  hora_inicio: horaIni, hora_fim: horaFim,
+                  dias_semana: dias.length > 0 ? dias : null })
         .eq('slug', slugOriginal);
       erro = error;
     }
   } else {
+    const horaIni = document.getElementById('cat-hora-inicio').value || null;
+    const horaFim = document.getElementById('cat-hora-fim').value || null;
+    const dias = Array.from(document.querySelectorAll('.cat-dia-check:checked')).map(cb => cb.value);
     const { error } = await supa
       .from('categorias')
-      .insert([{ slug, nome: nome, nome_exibicao: nome, ordem: ordemVal }]);
+      .insert([{ slug, nome: nome, nome_exibicao: nome, ordem: ordemVal,
+                 hora_inicio: horaIni, hora_fim: horaFim,
+                 dias_semana: dias.length > 0 ? dias : null }]);
     erro = error;
   }
 
@@ -3156,6 +3179,9 @@ async function abrirModalCategoria() {
   slugInput.readOnly = false;
   slugInput.dataset.slugOriginal = '';
   document.getElementById('cat-nome').value = '';
+  document.getElementById('cat-hora-inicio').value = '';
+  document.getElementById('cat-hora-fim').value = '';
+  document.querySelectorAll('.cat-dia-check').forEach(cb => cb.checked = false);
 
   // Auto-preenche a ordem com o próximo número
   try {
@@ -3708,14 +3734,10 @@ async function carregarConfiguracoes() {
     });
   }
 
-  // Preenche o campo de URL do ícone
   const iconeUrlInput = document.getElementById('cfg-icone-url');
   const iconePreview = document.getElementById('cfg-icone-preview');
   if (iconeUrlInput) iconeUrlInput.value = data.icone_url || '';
-  if (iconePreview && data.icone_url) {
-    iconePreview.src = data.icone_url;
-    iconePreview.style.display = 'block';
-  }
+  if (iconePreview && data.icone_url) { iconePreview.src = data.icone_url; iconePreview.style.display = 'block'; }
 
   // Carrega adicionais globais
   await carregarExtrasGlobaisAdmin();
@@ -3738,7 +3760,7 @@ async function salvarConfiguracoes() {
   const dados = {
     loja_aberta: g('cfg-aberta') === 'true',
     cotacao_real: parseFloat(g('cfg-cotacao')) || 1100,
-    banner_produto_id: g('cfg-banner-id'),
+    banner_produto_id: parseInt(g('cfg-banner-id')) || null,
     banner_imagem: g('cfg-banner-img') || '',
     horarios_semanais: _lerGradeSemanal(),
   };
@@ -3822,13 +3844,8 @@ function previewIcone(input) {
   const url = input.value?.trim();
   const prev = document.getElementById('cfg-icone-preview');
   if (!prev) return;
-  if (url) {
-    prev.src = url;
-    prev.style.display = 'block';
-  } else {
-    prev.src = '';
-    prev.style.display = 'none';
-  }
+  if (url) { prev.src = url; prev.style.display = 'block'; }
+  else { prev.src = ''; prev.style.display = 'none'; }
 }
 
 // =========================================================
@@ -3925,7 +3942,6 @@ async function salvarPersonalizacao() {
     // Se o usuário digitou hex manual, usa ele
     if (corHex && corHex.startsWith('#')) dados.cor_primaria = corHex;
 
-    // URL do ícone (campo de texto direto)
     const iconeUrl = document.getElementById('cfg-icone-url')?.value?.trim();
     if (iconeUrl) dados.icone_url = iconeUrl;
 
