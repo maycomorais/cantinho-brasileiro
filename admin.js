@@ -10,7 +10,7 @@ let audioHabilitado = false; // Controle de permissão do navegador
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Recupera a última aba ou define padrão
-  let lastTab = localStorage.getItem('lastTab');
+  let lastTab = localStorage.getItem('cantinho_lastTab');
   if (!lastTab || !document.getElementById(lastTab)) {
     lastTab = 'pedidos';
   }
@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // === SISTEMA DE AUTO-REFRESH (10 SEGUNDOS) ===
   // Backup caso o Realtime falhe
   setInterval(() => {
-    const abaAtual = localStorage.getItem('lastTab');
+    const abaAtual = localStorage.getItem('cantinho_lastTab');
     // true = modo silencioso (sem recarregar som se já estiver tocando)
     if (abaAtual === 'pedidos') carregarPedidos(true);
     if (abaAtual === 'cozinha') carregarCozinha();
@@ -104,7 +104,7 @@ function showTab(tabId, event) {
     realTabId = 'pedidos';
   }
 
-  localStorage.setItem('lastTab', realTabId);
+  localStorage.setItem('cantinho_lastTab', realTabId);
 
   // 2. Reset visual
   document.querySelectorAll('.tab-content').forEach((t) => t.classList.remove('active'));
@@ -183,7 +183,7 @@ function iniciarRealtime() {
       }
       // Atualiza tela — silencioso=true em updates para não re-tocar alarme
       const silencioso = payload.eventType === 'UPDATE';
-      const abaAtual = localStorage.getItem('lastTab');
+      const abaAtual = localStorage.getItem('cantinho_lastTab');
       if (abaAtual === 'pedidos') carregarPedidos(silencioso);
       if (abaAtual === 'cozinha') carregarCozinha();
       if (abaAtual === 'dashboard') carregarDashboard();
@@ -607,7 +607,7 @@ async function mudarStatus(id, novoStatus) {
 
   if (typeof pararAlarme === 'function') pararAlarme();
 
-  const abaAtual = localStorage.getItem('lastTab');
+  const abaAtual = localStorage.getItem('cantinho_lastTab');
   if (abaAtual === 'cozinha') carregarCozinha();
   else if (abaAtual === 'pedidos') carregarPedidos();
   else if (abaAtual === 'pdv') carregarMonitorMesas();
@@ -1755,10 +1755,9 @@ async function salvarProduto() {
           desc: row.querySelector('[data-f="sdesc"]')?.value?.trim() || '',
           tipo: row.querySelector('[data-f="stipo"]').value,
           img: row.querySelector('[data-f="simg"]')?.value || '',
-          preco: 0, // preço agora é definido por categoria no tamanho
+          preco: 0,
         });
       });
-      // Coleta lista de bordas (preco por tamanho)
       const bordas = [];
       document.querySelectorAll('.pizza-borda-row').forEach((row) => {
         const nome = row.querySelector('[data-f="bnome"]').value.trim();
@@ -1772,8 +1771,8 @@ async function salvarProduto() {
           document.getElementById('pizza-tipo-doce').checked ? 'Doce' : null,
         ].filter(Boolean),
         tem_borda: bordas.length > 0,
-        bordas, // lista de bordas (preco vem de tamanhos[].borda_preco)
-        borda_preco: 0, // deprecated
+        bordas,
+        borda_preco: 0,
         tamanhos,
         sabores,
       };
@@ -2131,7 +2130,7 @@ function addPizzaBorda(dados = {}) {
   row.className = 'pizza-borda-row';
   row.innerHTML = `
     <input data-f="bnome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Cheddar, Catupiry, Chocolate...">
-    <span style="font-size:0.78rem;color:#888;white-space:nowrap">💡 Preço definido por tamanho</span>
+    <span style="font-size:0.78rem;color:#888;white-space:nowrap">💡 Preço por tamanho</span>
     <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-borda-row').remove()" title="Remover">✕</button>
   `;
   lista.appendChild(row);
@@ -2159,7 +2158,7 @@ function addPizzaTamanho(dados = {}) {
       <div><label>🍕 Tradicional (Gs)</label><input data-f="preco_tradicional" type="number" class="form-control" value="${pTrad}" placeholder="60000"></div>
       <div><label>⭐ Especial (Gs)</label><input data-f="preco_especial" type="number" class="form-control" value="${pEsp}" placeholder="65000"></div>
       <div><label>🍫 Doce (Gs)</label><input data-f="preco_doce" type="number" class="form-control" value="${pDoce}" placeholder="60000"></div>
-      <div><label>🧀 Preço da Borda (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000" title="Preço por tamanho"></div>
+      <div><label>🧀 Preço Borda (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000"></div>
     </div>
   `;
   lista.appendChild(row);
@@ -2625,7 +2624,7 @@ async function carregarCategorias() {
     const cJson = JSON.stringify(c).replace(/'/g, '&apos;').replace(/"/g, '&quot;');
     const horarioBadge =
       c.hora_inicio && c.hora_fim
-        ? `<span class="cat-badge cat-badge-horario">🕐 ${c.hora_inicio}–${c.hora_fim}${Array.isArray(c.dias_semana) && c.dias_semana.length ? ' (' + c.dias_semana.join(',') + ')' : ''}</span>`
+        ? `<span class="cat-badge cat-badge-horario">🕐 ${c.hora_inicio}–${c.hora_fim}${Array.isArray(c.dias_semana)&&c.dias_semana.length?' ('+c.dias_semana.join(',')+')'  :''}</span>`
         : `<span class="cat-badge cat-badge-sempre">✅ Sempre visível</span>`;
 
     const card = document.createElement('div');
@@ -3062,11 +3061,8 @@ function editarCategoria(c) {
   document.getElementById('cat-ordem').value = c.ordem;
   document.getElementById('cat-hora-inicio').value = c.hora_inicio || '';
   document.getElementById('cat-hora-fim').value = c.hora_fim || '';
-  // Marca os dias salvos
   const diasSalvos = Array.isArray(c.dias_semana) ? c.dias_semana : [];
-  document.querySelectorAll('.cat-dia-check').forEach(cb => {
-    cb.checked = diasSalvos.includes(cb.value);
-  });
+  document.querySelectorAll('.cat-dia-check').forEach(cb => { cb.checked = diasSalvos.includes(cb.value); });
 
   document.getElementById('modal-cat').style.display = 'flex';
 }
@@ -3141,26 +3137,22 @@ async function salvarCategoria() {
       const { error: delErr } = await supa.from('categorias').delete().eq('slug', slugOriginal);
       erro = delErr;
     } else {
-      const horaIni = document.getElementById('cat-hora-inicio').value || null;
-      const horaFim = document.getElementById('cat-hora-fim').value || null;
-      const dias = Array.from(document.querySelectorAll('.cat-dia-check:checked')).map(cb => cb.value);
       const { error } = await supa
         .from('categorias')
         .update({ nome: nome, nome_exibicao: nome, ordem: ordemVal,
-                  hora_inicio: horaIni, hora_fim: horaFim,
-                  dias_semana: dias.length > 0 ? dias : null })
+                  hora_inicio: document.getElementById('cat-hora-inicio').value || null,
+                  hora_fim: document.getElementById('cat-hora-fim').value || null,
+                  dias_semana: (() => { const d = Array.from(document.querySelectorAll('.cat-dia-check:checked')).map(cb=>cb.value); return d.length>0?d:null; })() })
         .eq('slug', slugOriginal);
       erro = error;
     }
   } else {
-    const horaIni = document.getElementById('cat-hora-inicio').value || null;
-    const horaFim = document.getElementById('cat-hora-fim').value || null;
-    const dias = Array.from(document.querySelectorAll('.cat-dia-check:checked')).map(cb => cb.value);
     const { error } = await supa
       .from('categorias')
       .insert([{ slug, nome: nome, nome_exibicao: nome, ordem: ordemVal,
-                 hora_inicio: horaIni, hora_fim: horaFim,
-                 dias_semana: dias.length > 0 ? dias : null }]);
+                 hora_inicio: document.getElementById('cat-hora-inicio').value || null,
+                 hora_fim: document.getElementById('cat-hora-fim').value || null,
+                 dias_semana: (() => { const d = Array.from(document.querySelectorAll('.cat-dia-check:checked')).map(cb=>cb.value); return d.length>0?d:null; })() }]);
     erro = error;
   }
 

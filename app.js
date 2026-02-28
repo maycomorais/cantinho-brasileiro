@@ -30,17 +30,17 @@ function iniciarTimerAutoConfirmacao(pedidoId) {
     // Salva timestamp no localStorage para persistir entre reloads
     const agora = new Date().getTime();
     const tempoExpiracao = agora + QUATRO_HORAS;
-    localStorage.setItem('autoConfirmExpiry_' + pedidoId, tempoExpiracao);
+    localStorage.setItem('cantinho_confirmExpiry_' + pedidoId, tempoExpiracao);
     
     console.log('⏰ Timer de auto-confirmação iniciado para 4 horas');
 }
 
 // ===== FUNÇÃO PARA RESTAURAR TIMER APÓS RELOAD =====
 function restaurarTimerSeNecessario() {
-    const pedidoId = localStorage.getItem('sushi_pedido_id');
+    const pedidoId = localStorage.getItem('cantinho_pedido_id');
     if (!pedidoId) return;
     
-    const tempoExpiracao = localStorage.getItem('autoConfirmExpiry_' + pedidoId);
+    const tempoExpiracao = localStorage.getItem('cantinho_confirmExpiry_' + pedidoId);
     if (!tempoExpiracao) return;
     
     const agora = new Date().getTime();
@@ -75,7 +75,7 @@ async function confirmarEntregaAutomatica(pedidoId) {
         console.log('✅ Entrega confirmada automaticamente após 4 horas');
         
         // Limpa dados locais
-        localStorage.removeItem('autoConfirmExpiry_' + pedidoId);
+        localStorage.removeItem('cantinho_confirmExpiry_' + pedidoId);
         fecharTracker();
         
         // Mostra notificação
@@ -91,7 +91,7 @@ async function confirmarEntregaAutomatica(pedidoId) {
 
 // ===== CONFIRMAÇÃO MANUAL (CLIENTE) =====
 async function confirmarEntregaCliente() {
-    const pedidoId = localStorage.getItem('sushi_pedido_id');
+    const pedidoId = localStorage.getItem('cantinho_pedido_id');
     if (!pedidoId) {
         alert('Erro: Pedido não encontrado');
         return;
@@ -118,7 +118,7 @@ async function confirmarEntregaCliente() {
         if (autoConfirmTimer) {
             clearTimeout(autoConfirmTimer);
         }
-        localStorage.removeItem('autoConfirmExpiry_' + pedidoId);
+        localStorage.removeItem('cantinho_confirmExpiry_' + pedidoId);
         
         // Atualiza UI
         mostrarMensagemEntregaConfirmada();
@@ -173,7 +173,7 @@ function mostrarTracker(status, uidPedido) {
     if (tr) tr.style.display = 'block';
 
     // Botão confirmar entrega se saiu para entrega
-    const pedidoId = localStorage.getItem('sushi_pedido_id');
+    const pedidoId = localStorage.getItem('cantinho_pedido_id');
     if (status === 'saiu_entrega' && pedidoId) {
         const tr2 = document.getElementById('track-result');
         if (tr2 && !document.getElementById('btn-confirmar-entrega')) {
@@ -185,14 +185,14 @@ function mostrarTracker(status, uidPedido) {
                 </button>
             `);
         }
-        const tempoExpiracao = localStorage.getItem('autoConfirmExpiry_' + pedidoId);
+        const tempoExpiracao = localStorage.getItem('cantinho_confirmExpiry_' + pedidoId);
         if (!tempoExpiracao) iniciarTimerAutoConfirmacao(pedidoId);
     }
 
     if (status === 'entregue') {
         mostrarMensagemEntregaConfirmada();
         if (autoConfirmTimer) clearTimeout(autoConfirmTimer);
-        localStorage.removeItem('autoConfirmExpiry_' + pedidoId);
+        localStorage.removeItem('cantinho_confirmExpiry_' + pedidoId);
     }
 }
 
@@ -527,14 +527,12 @@ async function renderMenu() {
   const minAgora = agora.getHours() * 60 + agora.getMinutes();
 
   function categoriaVisivel(cat) {
-    // Filtro de dias da semana (dom=0 ... sab=6)
     if (Array.isArray(cat.dias_semana) && cat.dias_semana.length > 0) {
       const mapa = { dom:0, seg:1, ter:2, qua:3, qui:4, sex:5, sab:6 };
-      const diaAtual = agora.getDay(); // 0=dom
+      const diaAtual = agora.getDay();
       const diasNum = cat.dias_semana.map(d => mapa[d]).filter(n => n !== undefined);
       if (!diasNum.includes(diaAtual)) return false;
     }
-    // Filtro de horário
     if (!cat.hora_inicio || !cat.hora_fim) return true;
     const [hI, mI] = cat.hora_inicio.split(':').map(Number);
     const [hF, mF] = cat.hora_fim.split(':').map(Number);
@@ -1984,8 +1982,8 @@ async function enviarZap() {
 
   // Pedido duplo: bloqueia se mesmo carrinho enviado no último 1h
   const _agora = Date.now();
-  const _ultimoHash = localStorage.getItem('sushi_last_hash');
-  const _ultimoTs   = parseInt(localStorage.getItem('sushi_last_ts') || '0');
+  const _ultimoHash = localStorage.getItem('cantinho_last_hash');
+  const _ultimoTs   = parseInt(localStorage.getItem('cantinho_last_ts') || '0');
   const _hashAtual  = carrinho.map(i => i.nome + i.qtd).sort().join('|');
   if (_ultimoHash === _hashAtual && (_agora - _ultimoTs) < 3600000) {
     return alert('🚫 Seu pedido anterior foi computado, estamos bloqueando esta segunda tentativa.');
@@ -2090,8 +2088,8 @@ async function enviarZap() {
   }
 
   // Salva localmente para "Repetir Pedido"
-  localStorage.setItem('sushi_last', JSON.stringify(carrinho));
-  localStorage.setItem('sushi_user', JSON.stringify({ nome, tel }));
+  localStorage.setItem('cantinho_last', JSON.stringify(carrinho));
+  localStorage.setItem('cantinho_user', JSON.stringify({ nome, tel }));
 
   // 2. Usa o número real do pedido na mensagem
   const idDisplay = numeroPedido || 'TEMP';
@@ -2194,8 +2192,8 @@ async function enviarZap() {
 
   // Salva hash anti-duplicata ANTES de enviar
   const _hashFinal = carrinho.map(i => i.nome + i.qtd).sort().join('|');
-  localStorage.setItem('sushi_last_hash', _hashFinal);
-  localStorage.setItem('sushi_last_ts',   Date.now().toString());
+  localStorage.setItem('cantinho_last_hash', _hashFinal);
+  localStorage.setItem('cantinho_last_ts',   Date.now().toString());
 
   // Modal de confirmação 5s antes de abrir WhatsApp
   await _mostrarModalEnvio(msg, numeroPedido);
@@ -2266,8 +2264,8 @@ function _abrirZapEFechar(msg, numeroPedido, modal, resolve) {
 
   // Limpa backup imediatamente para não restaurar na próxima visita
   try {
-    localStorage.removeItem('sushi_carrinho_backup');
-    localStorage.removeItem('sushi_carrinho_backup_time');
+    localStorage.removeItem('cantinho_carrinho_backup');
+    localStorage.removeItem('cantinho_carrinho_backup_time');
   } catch(e) {}
 
   updateUI();
@@ -2283,13 +2281,13 @@ function _abrirZapEFechar(msg, numeroPedido, modal, resolve) {
 // 9. DADOS LOCAIS & REPETIR PEDIDO (Funções Restauradas)
 // ==========================================
 function carregarDadosLocal() {
-  const user = JSON.parse(localStorage.getItem('sushi_user'));
+  const user = JSON.parse(localStorage.getItem('cantinho_user'));
   if (user) {
     if (document.getElementById('cli-nome')) document.getElementById('cli-nome').value = user.nome;
     if (document.getElementById('cli-tel')) document.getElementById('cli-tel').value = user.tel;
   }
 
-  const last = JSON.parse(localStorage.getItem('sushi_last'));
+  const last = JSON.parse(localStorage.getItem('cantinho_last'));
   const box = document.getElementById('buy-again-container');
 
   if (last && Array.isArray(last) && last.length > 0) {
@@ -2309,7 +2307,7 @@ function carregarDadosLocal() {
 }
 
 function repetirPedido() {
-  const last = JSON.parse(localStorage.getItem('sushi_last'));
+  const last = JSON.parse(localStorage.getItem('cantinho_last'));
   if (last && Array.isArray(last) && last.length > 0) {
     carrinho = last;
     updateUI();
@@ -2360,8 +2358,8 @@ function iniciarTracking(pedidoDbId, uidTemporal) {
     const uid      = uidTemporal || pedidoDbId;
 
     try {
-        localStorage.setItem('sushi_pedido_id',  pedidoDbId);
-        localStorage.setItem('sushi_pedido_uid', uid);
+        localStorage.setItem('cantinho_pedido_id',  pedidoDbId);
+        localStorage.setItem('cantinho_pedido_uid', uid);
     } catch(e) {}
 
     _lastTrackedSt = 'pendente';
@@ -2415,7 +2413,7 @@ function _iniciarPollingTracking(pedidoId, uid) {
                 clearInterval(_pollingTracker); _pollingTracker = null;
                 if (_trackingChannel) { _trackingChannel.unsubscribe(); _trackingChannel = null; }
                 setTimeout(() => {
-                    try { localStorage.removeItem('sushi_pedido_id'); localStorage.removeItem('sushi_pedido_uid'); } catch(e) {}
+                    try { localStorage.removeItem('cantinho_pedido_id'); localStorage.removeItem('cantinho_pedido_uid'); } catch(e) {}
                 }, 10000);
             }
         } catch(e) { /* falha silenciosa de rede */ }
@@ -2476,8 +2474,8 @@ function restaurarTrackingSeExistir() {
     const card = document.getElementById('track-order-card');
     if (card) card.style.display = 'none';
 
-    const savedId  = localStorage.getItem('sushi_pedido_id');
-    const savedUid = localStorage.getItem('sushi_pedido_uid');
+    const savedId  = localStorage.getItem('cantinho_pedido_id');
+    const savedUid = localStorage.getItem('cantinho_pedido_uid');
     if (!savedId) return;
 
     console.log('🔄 Restaurando tracking para pedido:', savedId);
@@ -2488,7 +2486,7 @@ function restaurarTrackingSeExistir() {
             if (error || !data) return;
             // Se já foi entregue ou cancelado, limpa e não mostra tracker
             if (data.status === 'entregue' || data.status === 'cancelado') {
-                try { localStorage.removeItem('sushi_pedido_id'); localStorage.removeItem('sushi_pedido_uid'); } catch(e) {}
+                try { localStorage.removeItem('cantinho_pedido_id'); localStorage.removeItem('cantinho_pedido_uid'); } catch(e) {}
                 return;
             }
 
@@ -2496,7 +2494,7 @@ function restaurarTrackingSeExistir() {
             if (data.created_at) {
                 const diffHoras = (Date.now() - new Date(data.created_at).getTime()) / 3600000;
                 if (diffHoras > 6) {
-                    try { localStorage.removeItem('sushi_pedido_id'); localStorage.removeItem('sushi_pedido_uid'); } catch(e) {}
+                    try { localStorage.removeItem('cantinho_pedido_id'); localStorage.removeItem('cantinho_pedido_uid'); } catch(e) {}
                     return;
                 }
             }
@@ -2723,9 +2721,9 @@ function atualizarTrackingVisual(status, motoboy) {
             _trackResult.appendChild(_btn);
         }
         // Inicia timer auto-confirm se ainda não iniciado
-        const _pedidoLocal = localStorage.getItem('sushi_pedido_id');
+        const _pedidoLocal = localStorage.getItem('cantinho_pedido_id');
         if (_pedidoLocal && typeof iniciarTimerAutoConfirmacao === 'function') {
-            if (!localStorage.getItem('autoConfirmExpiry_' + _pedidoLocal)) {
+            if (!localStorage.getItem('cantinho_confirmExpiry_' + _pedidoLocal)) {
                 iniciarTimerAutoConfirmacao(_pedidoLocal);
             }
         }
@@ -2754,7 +2752,7 @@ function atualizarTrackingVisual(status, motoboy) {
 
 // ── EDIÇÃO DE PEDIDO PELO CLIENTE ────────────────────────────────
 function abrirEdicaoPedido() {
-    const pedidoId = localStorage.getItem('sushi_pedido_id');
+    const pedidoId = localStorage.getItem('cantinho_pedido_id');
     if (!pedidoId) return;
 
     // Fecha tracking e abre carrinho com itens atuais
@@ -2825,7 +2823,7 @@ async function iniciarEdicaoCarrinho(pedidoId) {
 
 // ── SOLICITAR CANCELAMENTO PELO CLIENTE (via tracking) ──────────
 async function solicitarCancelamentoCliente() {
-    const pedidoId = localStorage.getItem('sushi_pedido_id');
+    const pedidoId = localStorage.getItem('cantinho_pedido_id');
     if (!pedidoId) return;
     
     const motivo = prompt('Motivo do cancelamento (obrigatório):');
@@ -2850,8 +2848,8 @@ async function solicitarCancelamentoCliente() {
 function iniciarTrackingRealtime(pedidoId) {
     _trackedId     = pedidoId;
     _lastTrackedSt = ''; // força re-render na primeira leitura do polling
-    localStorage.setItem('sushi_pedido_id', pedidoId);
-    localStorage.setItem('sushi_pedido_uid', pedidoId);
+    localStorage.setItem('cantinho_pedido_id', pedidoId);
+    localStorage.setItem('cantinho_pedido_uid', pedidoId);
     _iniciarPollingTracking(pedidoId, pedidoId);
     _tentarCanalRealtime(pedidoId, pedidoId);
 }
@@ -2929,11 +2927,11 @@ initDeteccaoConexao();
 function salvarCarrinhoLocal() {
   try {
     if (carrinho && carrinho.length > 0) {
-      localStorage.setItem('sushi_carrinho_backup', JSON.stringify(carrinho));
-      localStorage.setItem('sushi_carrinho_backup_time', new Date().toISOString());
+      localStorage.setItem('cantinho_carrinho_backup', JSON.stringify(carrinho));
+      localStorage.setItem('cantinho_carrinho_backup_time', new Date().toISOString());
     } else {
-      localStorage.removeItem('sushi_carrinho_backup');
-      localStorage.removeItem('sushi_carrinho_backup_time');
+      localStorage.removeItem('cantinho_carrinho_backup');
+      localStorage.removeItem('cantinho_carrinho_backup_time');
     }
   } catch (e) {
     console.warn('Não foi possível salvar backup do carrinho:', e);
@@ -2942,8 +2940,8 @@ function salvarCarrinhoLocal() {
 
 function restaurarCarrinhoBackup() {
   try {
-    const backup = localStorage.getItem('sushi_carrinho_backup');
-    const backupTime = localStorage.getItem('sushi_carrinho_backup_time');
+    const backup = localStorage.getItem('cantinho_carrinho_backup');
+    const backupTime = localStorage.getItem('cantinho_carrinho_backup_time');
 
     if (backup && backupTime) {
       const tempoBackup = new Date(backupTime);
