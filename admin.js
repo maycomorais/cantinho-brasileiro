@@ -3619,43 +3619,6 @@ function removerTurno(btn) {
   btn.closest('.gs-turno-row').remove();
 }
 
-function toggleDiaFechado(checkbox) {
-  const row = checkbox.closest('.dia-row');
-  const turnos = row.querySelector('.dia-turnos');
-  const statusTxt = row.querySelector('.dia-status-text');
-  if (checkbox.checked) {
-    if (turnos) turnos.style.display = 'none';
-    if (statusTxt) statusTxt.innerHTML = '<span style="color:#e74c3c">Fechado</span>';
-  } else {
-    if (turnos) turnos.style.display = '';
-    if (statusTxt) statusTxt.innerHTML = '<span style="color:#27ae60">Aberto</span>';
-  }
-}
-
-function adicionarTurno(btn) {
-  const lista = btn.previousElementSibling;
-  const idx = lista.querySelectorAll('.turno-row').length;
-  if (idx >= 2) {
-    alert('Máximo de 2 turnos por dia.');
-    return;
-  }
-  const div = document.createElement('div');
-  div.className = 'turno-row';
-  div.dataset.idx = idx;
-  div.innerHTML = `
-    <span class="turno-sep">e das</span>
-    <input type="time" class="form-control turno-abre" style="width:110px">
-    <span class="turno-sep">às</span>
-    <input type="time" class="form-control turno-fecha" style="width:110px">
-    <button class="btn-rm-turno" onclick="removerTurno(this)" title="Remover turno">✕</button>
-  `;
-  lista.appendChild(div);
-}
-
-function removerTurno(btn) {
-  btn.closest('.turno-row').remove();
-}
-
 function _lerGradeSemanal() {
   const horarios = {};
   document.querySelectorAll('.gs-dia-card').forEach((row) => {
@@ -5328,67 +5291,6 @@ async function cadastrarUsuario() {
       btn.innerHTML = '<i class="fas fa-user-plus"></i> Criar';
     }
   }
-}
-
-function addBuilderStep(titulo = '', max = 1, itens = []) {
-  const container = document.getElementById('builder-steps');
-  const index = container.children.length;
-
-  const stepDiv = document.createElement('div');
-  stepDiv.className = 'builder-step-card';
-  stepDiv.innerHTML = `
-        <div class="builder-step-header">
-            <h4>Etapa ${index + 1}</h4>
-            <button type="button" class="btn-remove-step" onclick="removerEtapa(${index})">
-                <i class="fas fa-trash"></i>
-            </button>
-        </div>
-        
-        <div class="builder-step-body">
-            <!-- NOME DA ETAPA -->
-            <div class="form-group">
-                <label>Nome da Etapa</label>
-                <input type="text" class="etapa-titulo input-modern" 
-                       value="${titulo}" 
-                       placeholder="Ex: Base, Proteína, Molho...">
-            </div>
-            
-            <!-- QUANTIDADE MÁXIMA -->
-            <div class="form-group">
-                <label>Quantidade Máxima de Itens</label>
-                <input type="number" class="etapa-max input-modern" 
-                       value="${max}" min="1" 
-                       placeholder="Ex: 1">
-                <small>Cliente poderá escolher até este número de itens</small>
-            </div>
-            
-            <!-- LISTA DE ITENS -->
-            <div class="form-group">
-                <label>Itens Disponíveis</label>
-                <div class="itens-list" id="itens-list-${index}">
-                    ${itens
-                      .map(
-                        (item, i) => `
-                        <div class="item-row">
-                            <input type="text" class="input-modern" value="${item}" 
-                                   placeholder="Nome do item">
-                            <button type="button" class="btn-remove-item" 
-                                    onclick="removerItem(${index}, ${i})">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                    `,
-                      )
-                      .join('')}
-                </div>
-                <button type="button" class="btn-add-item" onclick="adicionarItem(${index})">
-                    <i class="fas fa-plus"></i> Adicionar Item
-                </button>
-            </div>
-        </div>
-    `;
-
-  container.appendChild(stepDiv);
 }
 
 function adicionarItem(etapaIndex) {
