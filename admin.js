@@ -1713,7 +1713,7 @@ async function salvarProduto() {
     // Monta o config completo
     let configFinal = { __tipo: tipo };
 
-    const usaMontavel = ['montavel', 'acai', 'shake', 'suco'];
+    const usaMontavel = ['montavel', 'acai', 'suco'];
     if (usaMontavel.includes(tipo)) {
       const etapas = [];
       document.querySelectorAll('.etapa-item').forEach((div) => {
@@ -1730,12 +1730,39 @@ async function salvarProduto() {
       configFinal.etapas = etapas;
     }
 
+    // Shake dedicado: tamanhos + sabores
+    if (tipo === 'shake') {
+      const tamanhos = [];
+      document.querySelectorAll('.shake-tamanho-row').forEach((row) => {
+        const nome = row.querySelector('[data-f="snome"]').value.trim();
+        const ml = parseInt(row.querySelector('[data-f="sml"]').value) || 0;
+        const preco = parseFloat(row.querySelector('[data-f="spreco"]').value) || 0;
+        if (nome) tamanhos.push({ nome, ml, preco });
+      });
+      const sabores = [];
+      document.querySelectorAll('.shake-sabor-row').forEach((row) => {
+        const nome = row.querySelector('[data-f="snome"]').value.trim();
+        const preco = parseFloat(row.querySelector('[data-f="spreco"]').value) || 0;
+        const img = row.querySelector('[data-f="simg"]')?.value?.trim() || '';
+        if (nome) sabores.push({ nome, preco, img });
+      });
+      configFinal.shake = { tamanhos, sabores };
+      // preco base = menor tamanho
+      const precos = tamanhos.map(t => t.preco).filter(p => p > 0);
+      if (precos.length > 0) {
+        document.getElementById('prod-preco').value = Math.min(...precos);
+      }
+    }
+
     if (tipo === 'pizza') {
       const tamanhos = [];
       document.querySelectorAll('.pizza-tamanho-row').forEach((row) => {
         const pTrad = parseFloat(row.querySelector('[data-f="preco_tradicional"]')?.value) || 0;
         const pEsp = parseFloat(row.querySelector('[data-f="preco_especial"]')?.value) || 0;
         const pDoce = parseFloat(row.querySelector('[data-f="preco_doce"]')?.value) || 0;
+        const pBordaRow   = parseFloat(row.querySelector('[data-f="borda_preco"]')?.value) || 0;
+        const pBordaEspRow  = parseFloat(row.querySelector('[data-f="borda_preco_especial"]')?.value) || 0;
+        const pBordaDoceRow = parseFloat(row.querySelector('[data-f="borda_preco_doce"]')?.value) || 0;
         tamanhos.push({
           nome: row.querySelector('[data-f="nome"]').value,
           fatias: parseInt(row.querySelector('[data-f="fatias"]').value) || 0,
@@ -1743,7 +1770,9 @@ async function salvarProduto() {
           preco_tradicional: pTrad,
           preco_especial: pEsp,
           preco_doce: pDoce,
-          borda_preco: parseFloat(row.querySelector('[data-f="borda_preco"]')?.value) || 0,
+          borda_preco: pBordaRow,
+          borda_preco_especial: pBordaEspRow || null,
+          borda_preco_doce: pBordaDoceRow || null,
           // compatibilidade: preco = menor valor entre as categorias usadas
           preco: Math.min(...[pTrad, pEsp, pDoce].filter((v) => v > 0)) || pTrad,
         });
@@ -1816,7 +1845,7 @@ async function salvarProduto() {
     }
 
     // Compatibilidade retroativa: mantém e_montavel para indicar tipo
-    const isM = usaMontavel.includes(tipo);
+    const isM = usaMontavel.includes(tipo) || tipo === 'shake';
 
     // Para variações: preco = menor valor entre as variações (usado no "A partir de")
     let precoBase = parseFloat(document.getElementById('prod-preco').value) || 0;
@@ -1866,6 +1895,8 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
   document.getElementById('prod-tem-extras').checked = false;
   document.getElementById('extras-area').style.display = 'none';
   document.getElementById('extras-lista').innerHTML = '';
+  document.getElementById('shake-tamanhos-lista') && (document.getElementById('shake-tamanhos-lista').innerHTML = '');
+  document.getElementById('shake-sabores-lista') && (document.getElementById('shake-sabores-lista').innerHTML = '');
   document.getElementById('pizza-tamanhos-lista').innerHTML = '';
   document.getElementById('pizza-bordas-lista').innerHTML = '';
   document.getElementById('pizza-borda-preco-box').style.display = 'none';
@@ -1923,6 +1954,9 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
           document.getElementById('pizza-sabores-lista').innerHTML = '';
           p.sabores.forEach((s) => addPizzaSabor(s));
         }
+      }
+      if (tipo === 'shake' && cfg.shake) {
+        _popularShakeBuilder(cfg.shake);
       }
       if (tipo === 'almoco' && cfg.almoco) {
         // Tipo almoco legado: tratar como simples (builder removido)
@@ -1991,7 +2025,7 @@ const BUILDER_MAP = {
   pizza: 'builder-pizza',
   montavel: 'builder-montavel',
   acai: 'builder-montavel',
-  shake: 'builder-montavel',
+  shake: 'builder-shake',
   suco: 'builder-montavel',
   variacoes: 'builder-variacoes',
 };
@@ -2145,6 +2179,8 @@ function addPizzaTamanho(dados = {}) {
   const pEsp = dados.preco_especial ?? '';
   const pDoce = dados.preco_doce ?? '';
   const pBorda = dados.borda_preco ?? '';
+  const pBordaEsp = dados.borda_preco_especial ?? '';
+  const pBordaDoce = dados.borda_preco_doce ?? '';
   row.innerHTML = `
     <div class="pizza-tamanho-header">
       <div class="pizza-tamanho-info">
@@ -2158,7 +2194,11 @@ function addPizzaTamanho(dados = {}) {
       <div><label>🍕 Tradicional (Gs)</label><input data-f="preco_tradicional" type="number" class="form-control" value="${pTrad}" placeholder="60000"></div>
       <div><label>⭐ Especial (Gs)</label><input data-f="preco_especial" type="number" class="form-control" value="${pEsp}" placeholder="65000"></div>
       <div><label>🍫 Doce (Gs)</label><input data-f="preco_doce" type="number" class="form-control" value="${pDoce}" placeholder="60000"></div>
-      <div><label>🧀 Preço Borda (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000"></div>
+    </div>
+    <div class="pizza-tamanho-precos" style="margin-top:6px;padding-top:8px;border-top:1px dashed #e0e0e0">
+      <div><label>🧀 Borda Tradicional (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000"></div>
+      <div><label>🧀 Borda Especial (Gs)</label><input data-f="borda_preco_especial" type="number" class="form-control" value="${pBordaEsp}" placeholder="Deixe vazio = usa Trad."></div>
+      <div><label>🧀 Borda Doce (Gs)</label><input data-f="borda_preco_doce" type="number" class="form-control" value="${pBordaDoce}" placeholder="Deixe vazio = usa Trad."></div>
     </div>
   `;
   lista.appendChild(row);
@@ -3617,6 +3657,65 @@ function adicionarTurno(btn) {
 
 function removerTurno(btn) {
   btn.closest('.gs-turno-row').remove();
+}
+
+/* ══════════════════════════════════════════════
+   SHAKE BUILDER — Tamanhos + Sabores
+   ══════════════════════════════════════════════ */
+function addShakeTamanho(dados = {}) {
+  const lista = document.getElementById('shake-tamanhos-lista');
+  if (!lista) return;
+  const row = document.createElement('div');
+  row.className = 'shake-tamanho-row';
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #dde;border-radius:8px;padding:8px 10px;';
+  row.innerHTML = `
+    <div style="flex:2">
+      <label style="font-size:0.72rem;color:#888">Nome</label>
+      <input data-f="snome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: P, M, G, 500ml">
+    </div>
+    <div style="flex:1">
+      <label style="font-size:0.72rem;color:#888">Volume (ml)</label>
+      <input data-f="sml" type="number" class="form-control" value="${dados.ml || ''}" placeholder="400">
+    </div>
+    <div style="flex:2">
+      <label style="font-size:0.72rem;color:#888">Preço (Gs)</label>
+      <input data-f="spreco" type="number" class="form-control" value="${dados.preco || ''}" placeholder="15000">
+    </div>
+    <button onclick="this.closest('.shake-tamanho-row').remove()" style="background:none;border:none;color:#e74c3c;font-size:1.2rem;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
+  `;
+  lista.appendChild(row);
+}
+
+function addShakeSabor(dados = {}) {
+  const lista = document.getElementById('shake-sabores-lista');
+  if (!lista) return;
+  const row = document.createElement('div');
+  row.className = 'shake-sabor-row';
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #dde;border-radius:8px;padding:8px 10px;';
+  row.innerHTML = `
+    <div style="flex:3">
+      <label style="font-size:0.72rem;color:#888">Sabor</label>
+      <input data-f="snome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Morango, Chocolate">
+    </div>
+    <div style="flex:2">
+      <label style="font-size:0.72rem;color:#888">Preço extra (Gs)</label>
+      <input data-f="spreco" type="number" class="form-control" value="${dados.preco || ''}" placeholder="0">
+    </div>
+    <div style="flex:2">
+      <label style="font-size:0.72rem;color:#888">URL Foto (opcional)</label>
+      <input data-f="simg" class="form-control" value="${dados.img || ''}" placeholder="https://...">
+    </div>
+    <button onclick="this.closest('.shake-sabor-row').remove()" style="background:none;border:none;color:#e74c3c;font-size:1.2rem;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
+  `;
+  lista.appendChild(row);
+}
+
+function _popularShakeBuilder(shakeConfig) {
+  document.getElementById('shake-tamanhos-lista').innerHTML = '';
+  document.getElementById('shake-sabores-lista').innerHTML = '';
+  if (!shakeConfig) return;
+  (shakeConfig.tamanhos || []).forEach(t => addShakeTamanho(t));
+  (shakeConfig.sabores || []).forEach(s => addShakeSabor(s));
 }
 
 function _lerGradeSemanal() {

@@ -1000,6 +1000,36 @@
           <input type="hidden" id="prod-montavel" value="false">
         </div>
 
+        <!-- ── BUILDER: SHAKE ── -->
+        <div id="builder-shake" class="builder-section" style="display:none">
+          <h4 style="color:#2980b9;margin-bottom:4px">🥤 Configuração do Milk Shake</h4>
+          <p style="font-size:0.82rem;color:#888;margin-bottom:14px">Defina os tamanhos disponíveis e os sabores que o cliente pode escolher.</p>
+
+          <!-- Tamanhos -->
+          <div style="margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <h5 style="margin:0">📐 Tamanhos</h5>
+              <button class="btn btn-sm btn-success" onclick="addShakeTamanho()">+ Tamanho</button>
+            </div>
+            <div style="background:#e8f4fd;border-radius:8px;padding:8px 12px;font-size:0.78rem;color:#1a6eb5;margin-bottom:8px">
+              💡 Defina nome (ex: P / M / G), volume em ml e o preço de cada tamanho.
+            </div>
+            <div id="shake-tamanhos-lista" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+
+          <!-- Sabores -->
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <h5 style="margin:0">🍓 Sabores</h5>
+              <button class="btn btn-sm btn-success" onclick="addShakeSabor()">+ Sabor</button>
+            </div>
+            <div style="background:#e8f4fd;border-radius:8px;padding:8px 12px;font-size:0.78rem;color:#1a6eb5;margin-bottom:8px">
+              💡 Adicione todos os sabores disponíveis. Preço extra opcional (ex: sabor premium).
+            </div>
+            <div id="shake-sabores-lista" style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;border:1px solid #eee;border-radius:8px;padding:8px"></div>
+          </div>
+        </div>
+
         <!-- ── BUILDER: PIZZA ── -->
         <div id="builder-pizza" class="builder-section" style="display:none">
           <h4 style="color:#e74c3c">🍕 Configuração da Pizza</h4>
