@@ -896,7 +896,8 @@ function _revelarPasso2(p, container) {
   _pizzaConfig.numSabores = null;
   _pizzaConfig.sabores = [];
 
-  const maxLoja = p.max_sabores || 1;
+  // max_sabores por tamanho tem prioridade sobre o global do produto
+  const maxLoja = _pizzaConfig.tamanhoSelecionado?.max_sabores || p.max_sabores || 1;
   const opcoes = Array.from({ length: maxLoja }, (_, i) => i + 1);
   const labels = { 1: 'Inteira', 2: 'Meia a Meia', 3: '3 Sabores', 4: '4 Sabores' };
 
@@ -1017,6 +1018,33 @@ function _selecionarSaborSlot(slot, nome, preco, el, tipo) {
   const cheios = _pizzaConfig.sabores.filter(Boolean).length;
   if (cheios >= n) {
     _revelarPasso4Borda();
+    // Scroll para a borda com pequeno delay (aguarda renderização)
+    setTimeout(() => {
+      const p4 = document.getElementById('pizza-passo4');
+      if (p4) {
+        const scrollEl = document.querySelector('.modal-scroll-area') || document.querySelector('.options-list');
+        if (scrollEl) {
+          const top = p4.offsetTop - scrollEl.offsetTop;
+          scrollEl.scrollTo({ top: top - 12, behavior: 'smooth' });
+        }
+      }
+    }, 80);
+  } else {
+    // Ainda há slots para preencher — scroll para o próximo slot
+    const proximoSlot = slot + 1;
+    setTimeout(() => {
+      const proxLista = document.getElementById(`pizza-slot-${proximoSlot}`);
+      if (proxLista) {
+        const scrollEl = document.querySelector('.modal-scroll-area') || document.querySelector('.options-list');
+        if (scrollEl) {
+          // Sobe um pouco para mostrar o header do slot junto
+          const header = proxLista.previousElementSibling; // .pizza-slot-header
+          const target = header || proxLista;
+          const top = target.offsetTop - scrollEl.offsetTop;
+          scrollEl.scrollTo({ top: top - 12, behavior: 'smooth' });
+        }
+      }
+    }, 80);
   }
   _atualizarPrecoPizza();
   _atualizarResumo();
@@ -1028,20 +1056,21 @@ function _revelarPasso4Borda() {
   const p4 = document.getElementById('pizza-passo4');
   if (!p4) return;
 
-  // Detecta o tipo dominante dos sabores escolhidos para usar preço certo da borda
-  const saboresEscolhidos = (_pizzaConfig.sabores || []).filter(Boolean);
-  const temEspecial = saboresEscolhidos.some(s => (s.tipo || '').toLowerCase() === 'especial');
-  const temDoce = saboresEscolhidos.some(s => (s.tipo || '').toLowerCase() === 'doce');
+  // Preço de cada borda = determinado pelo TIPO da borda (Tradicional/Especial/Doce)
+  // busca o preço correspondente no tamanho selecionado
   const tam = _pizzaConfig.tamanhoSelecionado || {};
-  let precoPorTamanho;
-  if (temEspecial && tam.borda_preco_especial) precoPorTamanho = tam.borda_preco_especial;
-  else if (temDoce && tam.borda_preco_doce) precoPorTamanho = tam.borda_preco_doce;
-  else precoPorTamanho = tam.borda_preco || 0;
+
+  function _precoBordaPorTipo(tipo) {
+    const t = (tipo || 'Tradicional').toLowerCase();
+    if (t === 'especial' && tam.borda_preco_especial > 0) return tam.borda_preco_especial;
+    if (t === 'doce' && tam.borda_preco_doce > 0) return tam.borda_preco_doce;
+    return tam.borda_preco || 0;
+  }
 
   const bordasOpcoes = p.bordas && p.bordas.length > 0
-    ? p.bordas.map(b => ({ nome: b.nome, preco: precoPorTamanho > 0 ? precoPorTamanho : (b.preco || p.borda_preco || 0) }))
+    ? p.bordas.map(b => ({ nome: b.nome, tipo: b.tipo || 'Tradicional', preco: _precoBordaPorTipo(b.tipo) }))
     : p.tem_borda
-      ? [{ nome: 'Borda Recheada', preco: precoPorTamanho || p.borda_preco || 0 }]
+      ? [{ nome: 'Borda Recheada', tipo: 'Tradicional', preco: tam.borda_preco || p.borda_preco || 0 }]
       : [];
 
   p4.innerHTML = `<section class="pizza-step">
@@ -1072,7 +1101,7 @@ function _pizzaSelecionarBorda(nome, preco, el) {
 }
 
 // compatibilidade
-function _selecionarBorda(com) { _pizzaSelecionarBorda(com ? 'Borda Recheada' : null, _pizzaConfig.tamanhoSelecionado?.borda_preco || _pizzaConfig.p?.borda_preco || 0, null); }
+function _selecionarBorda(com) { _pizzaSelecionarBorda(com ? 'Borda Recheada' : null, _pizzaConfig.p?.borda_preco || 0, null); }
 
 /* Resumo em tempo real */
 function _atualizarResumo() {

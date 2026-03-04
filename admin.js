@@ -1760,9 +1760,10 @@ async function salvarProduto() {
         const pTrad = parseFloat(row.querySelector('[data-f="preco_tradicional"]')?.value) || 0;
         const pEsp = parseFloat(row.querySelector('[data-f="preco_especial"]')?.value) || 0;
         const pDoce = parseFloat(row.querySelector('[data-f="preco_doce"]')?.value) || 0;
-        const pBordaRow   = parseFloat(row.querySelector('[data-f="borda_preco"]')?.value) || 0;
-        const pBordaEspRow  = parseFloat(row.querySelector('[data-f="borda_preco_especial"]')?.value) || 0;
-        const pBordaDoceRow = parseFloat(row.querySelector('[data-f="borda_preco_doce"]')?.value) || 0;
+        const pBordaRow      = parseFloat(row.querySelector('[data-f="borda_preco"]')?.value) || 0;
+        const pBordaEspRow   = parseFloat(row.querySelector('[data-f="borda_preco_especial"]')?.value) || 0;
+        const pBordaDoceRow  = parseFloat(row.querySelector('[data-f="borda_preco_doce"]')?.value) || 0;
+        const maxSabRow = parseInt(row.querySelector('[data-f="max_sabores"]')?.value) || null;
         tamanhos.push({
           nome: row.querySelector('[data-f="nome"]').value,
           fatias: parseInt(row.querySelector('[data-f="fatias"]').value) || 0,
@@ -1773,7 +1774,7 @@ async function salvarProduto() {
           borda_preco: pBordaRow,
           borda_preco_especial: pBordaEspRow || null,
           borda_preco_doce: pBordaDoceRow || null,
-          // compatibilidade: preco = menor valor entre as categorias usadas
+          max_sabores: maxSabRow,
           preco: Math.min(...[pTrad, pEsp, pDoce].filter((v) => v > 0)) || pTrad,
         });
       });
@@ -1790,7 +1791,8 @@ async function salvarProduto() {
       const bordas = [];
       document.querySelectorAll('.pizza-borda-row').forEach((row) => {
         const nome = row.querySelector('[data-f="bnome"]').value.trim();
-        if (nome) bordas.push({ nome, preco: 0 });
+        const tipo = row.querySelector('[data-f="btipo"]')?.value || 'Tradicional';
+        if (nome) bordas.push({ nome, tipo });
       });
 
       configFinal.pizza = {
@@ -2162,10 +2164,22 @@ function addPizzaBorda(dados = {}) {
   const lista = document.getElementById('pizza-bordas-lista');
   const row = document.createElement('div');
   row.className = 'pizza-borda-row';
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #eee;border-radius:8px;padding:8px 10px;margin-bottom:6px';
+  const tipoVal = dados.tipo || 'Tradicional';
   row.innerHTML = `
-    <input data-f="bnome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Cheddar, Catupiry, Chocolate...">
-    <span style="font-size:0.78rem;color:#888;white-space:nowrap">💡 Preço por tamanho</span>
-    <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-borda-row').remove()" title="Remover">✕</button>
+    <div style="flex:3">
+      <label style="font-size:0.72rem;color:#888">Nome da borda</label>
+      <input data-f="bnome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Cheddar, Catupiry, Chocolate">
+    </div>
+    <div style="flex:2">
+      <label style="font-size:0.72rem;color:#888">Tipo</label>
+      <select data-f="btipo" class="form-control">
+        <option value="Tradicional" ${tipoVal === 'Tradicional' ? 'selected' : ''}>🍕 Tradicional</option>
+        <option value="Especial" ${tipoVal === 'Especial' ? 'selected' : ''}>⭐ Especial</option>
+        <option value="Doce" ${tipoVal === 'Doce' ? 'selected' : ''}>🍫 Doce</option>
+      </select>
+    </div>
+    <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-borda-row').remove()" title="Remover" style="align-self:flex-end;margin-bottom:2px">✕</button>
   `;
   lista.appendChild(row);
 }
@@ -2179,14 +2193,15 @@ function addPizzaTamanho(dados = {}) {
   const pEsp = dados.preco_especial ?? '';
   const pDoce = dados.preco_doce ?? '';
   const pBorda = dados.borda_preco ?? '';
-  const pBordaEsp = dados.borda_preco_especial ?? '';
-  const pBordaDoce = dados.borda_preco_doce ?? '';
+  const maxSab = dados.max_sabores ?? '';
+
   row.innerHTML = `
     <div class="pizza-tamanho-header">
       <div class="pizza-tamanho-info">
         <div><label>Nome</label><input data-f="nome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: G"></div>
         <div><label>Fatias</label><input data-f="fatias" type="number" class="form-control" value="${dados.fatias || ''}" placeholder="8"></div>
         <div><label>Cm</label><input data-f="cm" type="number" class="form-control" value="${dados.cm || ''}" placeholder="35"></div>
+        <div><label>Máx. sabores</label><input data-f="max_sabores" type="number" min="1" max="4" class="form-control" value="${maxSab}" placeholder="2"></div>
       </div>
       <button class="btn btn-sm btn-danger pizza-tamanho-remove" onclick="this.closest('.pizza-tamanho-row').remove()" title="Remover">✕</button>
     </div>
@@ -2196,10 +2211,11 @@ function addPizzaTamanho(dados = {}) {
       <div><label>🍫 Doce (Gs)</label><input data-f="preco_doce" type="number" class="form-control" value="${pDoce}" placeholder="60000"></div>
     </div>
     <div class="pizza-tamanho-precos" style="margin-top:6px;padding-top:8px;border-top:1px dashed #e0e0e0">
-      <div><label>🧀 Borda Tradicional (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="Ex: 10000"></div>
-      <div><label>🧀 Borda Especial (Gs)</label><input data-f="borda_preco_especial" type="number" class="form-control" value="${pBordaEsp}" placeholder="Deixe vazio = usa Trad."></div>
-      <div><label>🧀 Borda Doce (Gs)</label><input data-f="borda_preco_doce" type="number" class="form-control" value="${pBordaDoce}" placeholder="Deixe vazio = usa Trad."></div>
+      <div><label>🧀 Borda Trad. (Gs)</label><input data-f="borda_preco" type="number" class="form-control" value="${pBorda}" placeholder="10000"></div>
+      <div><label>🧀 Borda Esp. (Gs)</label><input data-f="borda_preco_especial" type="number" class="form-control" value="${dados.borda_preco_especial ?? ''}" placeholder="12000"></div>
+      <div><label>🧀 Borda Doce (Gs)</label><input data-f="borda_preco_doce" type="number" class="form-control" value="${dados.borda_preco_doce ?? ''}" placeholder="12000"></div>
     </div>
+
   `;
   lista.appendChild(row);
 }
