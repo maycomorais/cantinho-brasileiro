@@ -54,6 +54,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   window.addEventListener('resize', () => {
+    // Ignora resize causado pelo teclado virtual no mobile (quando um input está focado)
+    // Isso evita o bug de sair da aba do carrinho ao digitar o número da mesa
+    const activeEl = document.activeElement;
+    const isKeyboardOpen = activeEl && (
+      activeEl.tagName === 'INPUT' ||
+      activeEl.tagName === 'TEXTAREA' ||
+      activeEl.tagName === 'SELECT' ||
+      activeEl.isContentEditable
+    );
+    if (isKeyboardOpen) return;
     if (document.getElementById('pdv')?.classList.contains('active')) pdvIniciarTabs();
   });
 
