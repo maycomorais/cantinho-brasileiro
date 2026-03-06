@@ -1,12 +1,12 @@
 {
-  "name": "Cantinho Brasileiro",
-  "short_name": "Cantinho Br",
-  "description": "Restaurante e Pizzaria - Delivery rápido",
-  "start_url": "/index.html",
+  "name": "Cantinho Admin",
+  "short_name": "Admin 🍕",
+  "description": "Painel administrativo — Cantinho Brasileiro",
+  "start_url": "/admin.html",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
+  "background_color": "#1a252f",
   "theme_color": "#1a7a2e",
   "lang": "pt-BR",
   "icons": [
@@ -23,12 +23,18 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["food", "shopping"],
+  "categories": ["business", "productivity"],
   "shortcuts": [
     {
-      "name": "Fazer Pedido",
-      "short_name": "Pedido",
-      "url": "/index.html",
+      "name": "PDV Balcão",
+      "short_name": "PDV",
+      "url": "/admin.html#pdv",
+      "icons": [{ "src": "https://media.bio.site/sites/79CC2018-24E6-48C4-A856-4C1E36908B60/AWwTtFWnmuqVysXARE2MRX.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Pedidos",
+      "short_name": "Pedidos",
+      "url": "/admin.html#pedidos",
       "icons": [{ "src": "https://media.bio.site/sites/79CC2018-24E6-48C4-A856-4C1E36908B60/AWwTtFWnmuqVysXARE2MRX.png", "sizes": "96x96" }]
     }
   ]
