@@ -4487,9 +4487,10 @@ function _deveMostrarExtrasGlobais(produto) {
 }
 
 function adicionarItemPDV(p) {
-  // Verifica se produto tem variações
   const cfg = p.montagem_config;
-  const tipo = cfg && !Array.isArray(cfg) && cfg.__tipo ? cfg.__tipo : null;
+  const tipo = cfg && !Array.isArray(cfg) && cfg.__tipo ? cfg.__tipo : (p.e_montavel ? 'montavel' : null);
+
+  // Tipos que precisam de modal de seleção
   if (tipo === 'variacoes' && cfg.variacoes && cfg.variacoes.length > 0) {
     const variacoesAtivas = cfg.variacoes.filter((v) => v.ativo !== false);
     if (variacoesAtivas.length === 0) {
@@ -4499,6 +4500,12 @@ function adicionarItemPDV(p) {
     _mostrarModalVariacaoPDV(p, variacoesAtivas);
     return;
   }
+  if (tipo === 'pizza' || tipo === 'shake' || tipo === 'montavel' || tipo === 'almoco') {
+    _mostrarModalComplexoPDV(p, tipo, cfg);
+    return;
+  }
+
+  // Produto simples — adiciona direto
   const existe = carrinhoPDV.find((i) => i.id === p.id && !i.variacao);
   if (existe) existe.qtd++;
   else carrinhoPDV.push({ ...p, qtd: 1 });
@@ -4510,6 +4517,500 @@ function adicionarItemPDV(p) {
       if (extras && extras.length > 0) _mostrarUpsellExtrasPDV(p, extras);
     });
   }
+}
+
+// ─── Modal completo PDV — Pizza / Shake / Montável / Almoço ───────────────────
+let _pdvModalState = {};
+
+function _mostrarModalComplexoPDV(produto, tipo, cfg) {
+  document.getElementById('pdv-complex-modal')?.remove();
+
+  const cacheKey = 'pdvc_' + (produto.id || Date.now());
+  window._pdvProdCache[cacheKey] = produto;
+
+  // Estado do modal
+  _pdvModalState = {
+    tipo,
+    cfg,
+    produto,
+    cacheKey,
+    pizza: { tamanhoSelecionado: null, numSabores: null, sabores: [], bordaConfig: null },
+    shake: { tamanhoSelecionado: null, saborSelecionado: null },
+    montavel: {},   // { idxEtapa: [itens] }
+    almoco: null,   // prato selecionado
+    qtd: 1,
+  };
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pdv-complex-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:12px';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden';
+
+  // Header
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0';
+  header.innerHTML = `
+    <div>
+      <div style="font-weight:700;font-size:1rem;color:#222">${produto.nome}</div>
+      <div style="font-size:0.8rem;color:#888;margin-top:2px">${_pdvTipoLabel(tipo)}</div>
+    </div>
+    <button style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#aaa;padding:4px" onclick="document.getElementById('pdv-complex-modal')?.remove()">✕</button>`;
+  modal.appendChild(header);
+
+  // Body scrollável
+  const body = document.createElement('div');
+  body.id = 'pdv-complex-body';
+  body.style.cssText = 'overflow-y:auto;flex:1;padding:16px 20px';
+
+  if (tipo === 'pizza') _pdvRenderPizza(body);
+  else if (tipo === 'shake') _pdvRenderShake(body);
+  else if (tipo === 'montavel') _pdvRenderMontavel(body);
+  else if (tipo === 'almoco') _pdvRenderAlmoco(body);
+
+  modal.appendChild(body);
+
+  // Footer: preço + qty + confirmar
+  const footer = document.createElement('div');
+  footer.style.cssText = 'padding:14px 20px;border-top:1px solid #f0f0f0;flex-shrink:0;background:#fafafa';
+  footer.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <label style="font-size:0.85rem;color:#666;font-weight:600">Quantidade:</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button type="button" onclick="_pdvModalQtd(-1)" style="width:30px;height:30px;border-radius:50%;border:1px solid #ddd;background:#fff;font-size:1.1rem;cursor:pointer;line-height:1">−</button>
+        <span id="pdv-modal-qty" style="font-weight:700;font-size:1rem;min-width:20px;text-align:center">1</span>
+        <button type="button" onclick="_pdvModalQtd(1)" style="width:30px;height:30px;border-radius:50%;border:1px solid #ddd;background:#fff;font-size:1.1rem;cursor:pointer;line-height:1">+</button>
+      </div>
+      <span id="pdv-modal-preco" style="margin-left:auto;font-weight:700;font-size:1.05rem;color:var(--primary)">Gs ${(produto.preco||0).toLocaleString('es-PY')}</span>
+    </div>
+    <div style="margin-bottom:8px">
+      <input id="pdv-modal-obs" type="text" placeholder="Observação (opcional)" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:0.85rem;box-sizing:border-box">
+    </div>
+    <button type="button" onclick="_pdvModalConfirmar()" style="width:100%;padding:13px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:700;font-size:0.95rem;cursor:pointer">
+      ✅ Adicionar ao Carrinho
+    </button>`;
+  modal.appendChild(footer);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // Injeta CSS necessário se ainda não existe
+  if (!document.getElementById('pdv-complex-css')) {
+    const s = document.createElement('style');
+    s.id = 'pdv-complex-css';
+    s.textContent = `
+      .pdvc-step{margin-bottom:18px}
+      .pdvc-step-title{font-weight:700;font-size:0.9rem;color:#444;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+      .pdvc-step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;font-size:0.75rem;font-weight:700;flex-shrink:0}
+      .pdvc-size-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+      .pdvc-size-card{flex:1;min-width:90px;padding:10px 8px;border:2px solid #e5e7eb;border-radius:10px;background:#fafafa;cursor:pointer;text-align:center;transition:border-color 0.15s}
+      .pdvc-size-card.selected{border-color:var(--primary);background:#f0faf0}
+      .pdvc-size-name{font-weight:700;font-size:0.88rem;color:#333}
+      .pdvc-size-info{font-size:0.75rem;color:#888;margin-top:2px}
+      .pdvc-size-price{font-size:0.85rem;color:var(--primary);font-weight:700;margin-top:4px}
+      .pdvc-divisao-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+      .pdvc-divisao-btn{padding:8px 14px;border:2px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer;font-size:0.85rem;font-weight:600;color:#555;transition:border-color 0.15s}
+      .pdvc-divisao-btn.selected{border-color:var(--primary);background:#f0faf0;color:var(--primary)}
+      .pdvc-sabores-grid{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+      .pdvc-sabor-btn{display:flex;align-items:center;gap:10px;padding:9px 12px;border:2px solid #e5e7eb;border-radius:10px;background:#fafafa;cursor:pointer;text-align:left;width:100%;transition:border-color 0.15s}
+      .pdvc-sabor-btn.selected{border-color:var(--primary);background:#f0faf0}
+      .pdvc-sabor-img{width:40px;height:40px;border-radius:8px;object-fit:cover;flex-shrink:0}
+      .pdvc-sabor-nome{font-weight:600;font-size:0.88rem;color:#333}
+      .pdvc-sabor-desc{font-size:0.75rem;color:#888;margin-top:2px}
+      .pdvc-sabor-preco{font-size:0.8rem;color:var(--primary);font-weight:600;margin-top:2px}
+      .pdvc-borda-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+      .pdvc-borda-btn{padding:8px 12px;border:2px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer;font-size:0.82rem;font-weight:600;transition:border-color 0.15s}
+      .pdvc-borda-btn.selected{border-color:var(--primary);background:#f0faf0;color:var(--primary)}
+      .pdvc-check-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #eee;border-radius:8px;margin-bottom:4px;cursor:pointer}
+      .pdvc-check-item:hover{background:#f8f8f8}
+      .pdvc-slot-header{font-size:0.82rem;font-weight:700;color:#777;margin:10px 0 4px;text-transform:uppercase;letter-spacing:0.03em}
+      .pdvc-prato-btn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #e5e7eb;border-radius:10px;background:#fafafa;cursor:pointer;text-align:left;width:100%;margin-bottom:6px;transition:border-color 0.15s}
+      .pdvc-prato-btn.selected{border-color:var(--primary);background:#f0faf0}
+    `;
+    document.head.appendChild(s);
+  }
+}
+
+function _pdvTipoLabel(tipo) {
+  const labels = { pizza: '🍕 Escolha tamanho e sabores', shake: '🥤 Escolha tamanho e sabor', montavel: '🛠️ Monte seu pedido', almoco: '🍽️ Escolha o prato' };
+  return labels[tipo] || '';
+}
+
+function _pdvModalQtd(delta) {
+  _pdvModalState.qtd = Math.max(1, (_pdvModalState.qtd || 1) + delta);
+  document.getElementById('pdv-modal-qty').textContent = _pdvModalState.qtd;
+  _pdvModalAtualizarPreco();
+}
+
+function _pdvModalAtualizarPreco() {
+  const st = _pdvModalState;
+  let preco = 0;
+  if (st.tipo === 'pizza') {
+    const tamPreco = st.pizza.tamanhoSelecionado?.preco || 0;
+    const saborExtra = (st.pizza.sabores || []).filter(Boolean).reduce((acc, s) => Math.max(acc, s.preco || 0), 0);
+    const bordaPreco = st.pizza.bordaConfig?.preco || 0;
+    preco = tamPreco + saborExtra + bordaPreco;
+  } else if (st.tipo === 'shake') {
+    preco = (st.shake.tamanhoSelecionado?.preco || 0) + (st.shake.saborSelecionado?.preco || 0);
+  } else if (st.tipo === 'almoco') {
+    preco = st.almoco?.preco || st.produto.preco || 0;
+  } else {
+    preco = st.produto.preco || 0;
+  }
+  if (preco === 0) preco = st.produto.preco || 0;
+  const el = document.getElementById('pdv-modal-preco');
+  if (el) el.textContent = 'Gs ' + (preco * (st.qtd || 1)).toLocaleString('es-PY');
+  st._precoAtual = preco;
+}
+
+// ── Pizza ─────────────────────────────────────────────────────────────────────
+function _pdvRenderPizza(container) {
+  const cfg = _pdvModalState.cfg;
+  if (!cfg || !cfg.pizza) { container.innerHTML = '<p style="color:#aaa">Configuração de pizza não encontrada.</p>'; return; }
+  const p = cfg.pizza;
+  _pdvModalState.pizza = { p, tamanhoSelecionado: null, numSabores: null, sabores: [], bordaConfig: null };
+
+  // Passo 1: Tamanho
+  const sec1 = document.createElement('div');
+  sec1.className = 'pdvc-step';
+  sec1.innerHTML = `<div class="pdvc-step-title"><span class="pdvc-step-num">1</span> Escolha o tamanho</div><div class="pdvc-size-grid" id="pdvc-size-grid"></div>`;
+  container.appendChild(sec1);
+
+  const sizeGrid = sec1.querySelector('#pdvc-size-grid');
+  (p.tamanhos || []).forEach((tam) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'pdvc-size-card';
+    card.innerHTML = `<div class="pdvc-size-name">${tam.nome}</div><div class="pdvc-size-info">${tam.fatias || ''} fatias · ⌀${tam.cm || ''}cm</div><div class="pdvc-size-price">Gs ${(tam.preco || 0).toLocaleString('es-PY')}</div>`;
+    card.onclick = () => {
+      sizeGrid.querySelectorAll('.pdvc-size-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      _pdvModalState.pizza.tamanhoSelecionado = tam;
+      _pdvModalState.pizza.numSabores = null;
+      _pdvModalState.pizza.sabores = [];
+      _pdvModalState.pizza.bordaConfig = null;
+      _pdvPizzaPasso2(p);
+      _pdvModalAtualizarPreco();
+    };
+    sizeGrid.appendChild(card);
+  });
+
+  // Containers para passos seguintes
+  const p2 = document.createElement('div'); p2.id = 'pdvc-passo2'; p2.style.display = 'none'; container.appendChild(p2);
+  const p3 = document.createElement('div'); p3.id = 'pdvc-passo3'; p3.style.display = 'none'; container.appendChild(p3);
+  const p4 = document.createElement('div'); p4.id = 'pdvc-passo4'; p4.style.display = 'none'; container.appendChild(p4);
+}
+
+function _pdvPizzaPasso2(p) {
+  const passo2 = document.getElementById('pdvc-passo2');
+  const passo3 = document.getElementById('pdvc-passo3');
+  const passo4 = document.getElementById('pdvc-passo4');
+  if (!passo2) return;
+  if (passo3) { passo3.innerHTML = ''; passo3.style.display = 'none'; }
+  if (passo4) { passo4.innerHTML = ''; passo4.style.display = 'none'; }
+
+  const maxLoja = _pdvModalState.pizza.tamanhoSelecionado?.max_sabores || p.max_sabores || 1;
+  const labels = { 1: '🍕 Inteira', 2: '½ a ½', 3: '3 Sabores', 4: '4 Sabores' };
+  passo2.innerHTML = `
+    <div class="pdvc-step">
+      <div class="pdvc-step-title"><span class="pdvc-step-num">2</span> Quantos sabores?</div>
+      <div class="pdvc-divisao-grid">
+        ${Array.from({ length: maxLoja }, (_, i) => i + 1).map(n =>
+          `<button type="button" class="pdvc-divisao-btn" onclick="_pdvPizzaSelecionarDivisao(${n}, this)">${labels[n] || n + ' Sabores'}</button>`
+        ).join('')}
+      </div>
+    </div>`;
+  passo2.style.display = 'block';
+  setTimeout(() => passo2.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80);
+}
+
+function _pdvPizzaSelecionarDivisao(n, el) {
+  document.querySelectorAll('#pdvc-passo2 .pdvc-divisao-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  _pdvModalState.pizza.numSabores = n;
+  _pdvModalState.pizza.sabores = new Array(n).fill(null);
+  _pdvPizzaPasso3(n);
+}
+
+function _pdvPizzaPasso3(n) {
+  const passo3 = document.getElementById('pdvc-passo3');
+  const passo4 = document.getElementById('pdvc-passo4');
+  if (!passo3) return;
+  if (passo4) { passo4.innerHTML = ''; passo4.style.display = 'none'; }
+
+  const p = _pdvModalState.pizza.p;
+  const sabores = p.sabores || [];
+
+  let html = `<div class="pdvc-step"><div class="pdvc-step-title"><span class="pdvc-step-num">3</span> Escolha ${n === 1 ? 'o sabor' : `os ${n} sabores`}</div>`;
+  for (let slot = 0; slot < n; slot++) {
+    html += n > 1 ? `<div class="pdvc-slot-header">${slot + 1}º sabor</div>` : '';
+    html += `<div class="pdvc-sabores-grid" id="pdvc-slot-${slot}">`;
+    sabores.forEach((s) => {
+      const sfEsc = (s.nome || '').replace(/'/g, "\\'");
+      const imgHtml = s.img ? `<img src="${s.img}" class="pdvc-sabor-img" onerror="this.style.display='none'">` : `<span style="font-size:1.5rem">🍕</span>`;
+      html += `<button type="button" class="pdvc-sabor-btn" data-slot="${slot}" onclick="_pdvPizzaSelecionarSabor(${slot}, '${sfEsc}', ${s.preco || 0}, this)">
+        ${imgHtml}
+        <div>
+          <div class="pdvc-sabor-nome">${s.nome}</div>
+          ${s.desc ? `<div class="pdvc-sabor-desc">${s.desc}</div>` : ''}
+          ${s.preco ? `<div class="pdvc-sabor-preco">+ Gs ${(s.preco).toLocaleString('es-PY')}</div>` : ''}
+        </div>
+      </button>`;
+    });
+    html += `</div>`;
+  }
+  html += `</div>`;
+  passo3.innerHTML = html;
+  passo3.style.display = 'block';
+  setTimeout(() => passo3.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80);
+}
+
+function _pdvPizzaSelecionarSabor(slot, nome, preco, el) {
+  const lista = document.getElementById(`pdvc-slot-${slot}`);
+  if (lista) lista.querySelectorAll('.pdvc-sabor-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  _pdvModalState.pizza.sabores[slot] = { nome, preco };
+  _pdvModalAtualizarPreco();
+
+  const n = _pdvModalState.pizza.numSabores || 1;
+  const cheios = _pdvModalState.pizza.sabores.filter(Boolean).length;
+  if (cheios >= n) _pdvPizzaPasso4();
+}
+
+function _pdvPizzaPasso4() {
+  const passo4 = document.getElementById('pdvc-passo4');
+  if (!passo4) return;
+  const p = _pdvModalState.pizza.p;
+  const tam = _pdvModalState.pizza.tamanhoSelecionado || {};
+
+  function precoBordaPorTipo(tipo) {
+    const t = (tipo || 'Tradicional').toLowerCase();
+    if (t === 'especial' && tam.borda_preco_especial > 0) return tam.borda_preco_especial;
+    if (t === 'doce' && tam.borda_preco_doce > 0) return tam.borda_preco_doce;
+    return tam.borda_preco || 0;
+  }
+
+  const bordasOpcoes = p.bordas && p.bordas.length > 0
+    ? p.bordas.map(b => ({ nome: b.nome, tipo: b.tipo || 'Tradicional', preco: precoBordaPorTipo(b.tipo) }))
+    : p.tem_borda ? [{ nome: 'Borda Recheada', tipo: 'Tradicional', preco: tam.borda_preco || p.borda_preco || 0 }]
+    : [];
+
+  if (bordasOpcoes.length === 0) return; // sem borda disponível
+
+  passo4.innerHTML = `
+    <div class="pdvc-step">
+      <div class="pdvc-step-title"><span class="pdvc-step-num">4</span> Borda recheada?</div>
+      <div class="pdvc-borda-grid">
+        <button type="button" class="pdvc-borda-btn selected" id="pdvc-borda-nao" onclick="_pdvPizzaSelecionarBorda(null, 0, this)">Sem borda</button>
+        ${bordasOpcoes.map(b => `<button type="button" class="pdvc-borda-btn" onclick="_pdvPizzaSelecionarBorda('${(b.nome).replace(/'/g,"\\'")}', ${b.preco || 0}, this)">🧀 ${b.nome} <span style="font-size:0.75rem;opacity:0.8">+Gs ${(b.preco||0).toLocaleString('es-PY')}</span></button>`).join('')}
+      </div>
+    </div>`;
+  passo4.style.display = 'block';
+  setTimeout(() => passo4.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80);
+}
+
+function _pdvPizzaSelecionarBorda(nome, preco, el) {
+  document.querySelectorAll('#pdvc-passo4 .pdvc-borda-btn').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  _pdvModalState.pizza.bordaConfig = nome ? { nome, preco } : null;
+  _pdvModalAtualizarPreco();
+}
+
+// ── Shake ─────────────────────────────────────────────────────────────────────
+function _pdvRenderShake(container) {
+  const cfg = _pdvModalState.cfg;
+  const shk = (cfg && cfg.shake) ? cfg.shake : cfg || {};
+
+  // Tamanhos
+  const sec1 = document.createElement('div');
+  sec1.className = 'pdvc-step';
+  sec1.innerHTML = `<div class="pdvc-step-title"><span class="pdvc-step-num">1</span> Escolha o tamanho</div><div class="pdvc-size-grid" id="pdvc-shk-size"></div>`;
+  container.appendChild(sec1);
+  const sizeGrid = sec1.querySelector('#pdvc-shk-size');
+  (shk.tamanhos || []).forEach(tam => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'pdvc-size-card';
+    card.innerHTML = `<div class="pdvc-size-name">${tam.nome}</div>${tam.ml ? `<div class="pdvc-size-info">${tam.ml}ml</div>` : ''}<div class="pdvc-size-price">Gs ${(tam.preco || 0).toLocaleString('es-PY')}</div>`;
+    card.onclick = () => {
+      sizeGrid.querySelectorAll('.pdvc-size-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      _pdvModalState.shake.tamanhoSelecionado = tam;
+      _pdvModalAtualizarPreco();
+    };
+    sizeGrid.appendChild(card);
+  });
+
+  // Sabores
+  const sec2 = document.createElement('div');
+  sec2.className = 'pdvc-step';
+  sec2.innerHTML = `<div class="pdvc-step-title"><span class="pdvc-step-num">2</span> Escolha o sabor</div><div class="pdvc-sabores-grid" id="pdvc-shk-sabores"></div>`;
+  container.appendChild(sec2);
+  const saborGrid = sec2.querySelector('#pdvc-shk-sabores');
+  (shk.sabores || []).forEach(s => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pdvc-sabor-btn';
+    const imgHtml = s.img ? `<img src="${s.img}" class="pdvc-sabor-img" onerror="this.style.display='none'">` : `<span style="font-size:1.5rem">🥤</span>`;
+    btn.innerHTML = `${imgHtml}<div><div class="pdvc-sabor-nome">${s.nome}</div>${s.preco ? `<div class="pdvc-sabor-preco">+ Gs ${(s.preco).toLocaleString('es-PY')}</div>` : ''}</div>`;
+    btn.onclick = () => {
+      saborGrid.querySelectorAll('.pdvc-sabor-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      _pdvModalState.shake.saborSelecionado = { nome: s.nome, preco: s.preco || 0 };
+      _pdvModalAtualizarPreco();
+    };
+    saborGrid.appendChild(btn);
+  });
+}
+
+// ── Montável ──────────────────────────────────────────────────────────────────
+function _pdvRenderMontavel(container) {
+  const cfg = _pdvModalState.cfg;
+  const etapas = Array.isArray(cfg) ? cfg : (cfg && cfg.etapas ? cfg.etapas : []);
+  _pdvModalState.montavel = {};
+
+  if (etapas.length === 0) {
+    container.innerHTML = '<p style="color:#aaa;font-size:0.9rem">Este produto não tem etapas configuradas.</p>';
+    return;
+  }
+
+  etapas.forEach((etapa, idx) => {
+    _pdvModalState.montavel[idx] = [];
+    const sec = document.createElement('div');
+    sec.className = 'pdvc-step';
+    const title = document.createElement('div');
+    title.className = 'pdvc-step-title';
+    title.innerHTML = `<span class="pdvc-step-num">${idx + 1}</span> ${etapa.titulo} <span style="font-size:0.78rem;color:#aaa;font-weight:400">(máx ${etapa.max})</span>`;
+    sec.appendChild(title);
+
+    (etapa.itens || []).forEach(ingrediente => {
+      const label = document.createElement('label');
+      label.className = 'pdvc-check-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = ingrediente;
+      input.style.cssText = 'width:16px;height:16px;accent-color:var(--primary);cursor:pointer';
+      input.onchange = () => {
+        const arr = _pdvModalState.montavel[idx];
+        if (input.checked) {
+          if (arr.length < etapa.max) { arr.push(ingrediente); }
+          else { alert(`Máximo ${etapa.max} item(ns) em "${etapa.titulo}"`); input.checked = false; }
+        } else {
+          const i = arr.indexOf(ingrediente);
+          if (i > -1) arr.splice(i, 1);
+        }
+      };
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(' ' + ingrediente));
+      sec.appendChild(label);
+    });
+    container.appendChild(sec);
+  });
+}
+
+// ── Almoço ────────────────────────────────────────────────────────────────────
+function _pdvRenderAlmoco(container) {
+  const cfg = _pdvModalState.cfg;
+  const pratos = cfg && cfg.pratos ? cfg.pratos : [];
+
+  const sec = document.createElement('div');
+  sec.className = 'pdvc-step';
+  sec.innerHTML = `<div class="pdvc-step-title"><span class="pdvc-step-num">1</span> Escolha o prato</div>`;
+
+  if (pratos.length === 0) {
+    sec.innerHTML += '<p style="color:#aaa;font-size:0.9rem">Nenhum prato configurado.</p>';
+  }
+  pratos.forEach(prato => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pdvc-prato-btn';
+    const imgHtml = prato.img ? `<img src="${prato.img}" class="pdvc-sabor-img" onerror="this.style.display='none'">` : `<span style="font-size:1.5rem">🍽️</span>`;
+    btn.innerHTML = `${imgHtml}<div><div class="pdvc-sabor-nome">${prato.nome}</div>${prato.desc ? `<div class="pdvc-sabor-desc">${prato.desc}</div>` : ''}<div class="pdvc-sabor-preco">Gs ${(prato.preco || _pdvModalState.produto.preco || 0).toLocaleString('es-PY')}</div></div>`;
+    btn.onclick = () => {
+      container.querySelectorAll('.pdvc-prato-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      _pdvModalState.almoco = prato;
+      _pdvModalAtualizarPreco();
+    };
+    sec.appendChild(btn);
+  });
+  container.appendChild(sec);
+}
+
+// ── Confirmar ─────────────────────────────────────────────────────────────────
+function _pdvModalConfirmar() {
+  const st = _pdvModalState;
+  const p = window._pdvProdCache[st.cacheKey];
+  if (!p) return;
+
+  let variacao = '';
+  let montagem = [];
+  let preco = p.preco || 0;
+
+  if (st.tipo === 'pizza') {
+    if (!st.pizza.tamanhoSelecionado) { alert('Selecione o tamanho da pizza!'); return; }
+    const saboresOk = (st.pizza.sabores || []).filter(Boolean);
+    if (saboresOk.length === 0) { alert('Selecione ao menos 1 sabor!'); return; }
+    if (st.pizza.numSabores && saboresOk.length < st.pizza.numSabores) {
+      alert(`Selecione ${st.pizza.numSabores} sabores (selecionado: ${saboresOk.length}).`); return;
+    }
+    const tamPreco = st.pizza.tamanhoSelecionado.preco || 0;
+    const saborExtra = saboresOk.reduce((acc, s) => Math.max(acc, s.preco || 0), 0);
+    const bordaPreco = st.pizza.bordaConfig?.preco || 0;
+    preco = tamPreco + saborExtra + bordaPreco;
+    variacao = st.pizza.tamanhoSelecionado.nome;
+    const n = st.pizza.numSabores || 1;
+    const saboresStr = saboresOk.map((s, i) => n > 1 ? `${i + 1}/${n} ${s.nome}` : s.nome).join(' | ');
+    montagem = [saboresStr].filter(Boolean);
+    if (st.pizza.bordaConfig) montagem.push(`Borda: ${st.pizza.bordaConfig.nome}`);
+
+  } else if (st.tipo === 'shake') {
+    if (!st.shake.tamanhoSelecionado) { alert('Escolha um tamanho para o Shake!'); return; }
+    if (!st.shake.saborSelecionado) { alert('Escolha um sabor para o Shake!'); return; }
+    preco = (st.shake.tamanhoSelecionado.preco || 0) + (st.shake.saborSelecionado.preco || 0);
+    variacao = [st.shake.tamanhoSelecionado.nome, st.shake.saborSelecionado.nome].filter(Boolean).join(' – ');
+    montagem = [variacao];
+
+  } else if (st.tipo === 'montavel') {
+    const cfg = st.cfg;
+    const etapas = Array.isArray(cfg) ? cfg : (cfg && cfg.etapas ? cfg.etapas : []);
+    for (let k in st.montavel) {
+      if (st.montavel[k] && st.montavel[k].length > 0) {
+        const titulo = etapas[k] ? etapas[k].titulo : `Etapa ${parseInt(k) + 1}`;
+        montagem.push(`${titulo}: ${st.montavel[k].join(', ')}`);
+      }
+    }
+    preco = p.preco || 0;
+
+  } else if (st.tipo === 'almoco') {
+    if (!st.almoco) { alert('Selecione o prato!'); return; }
+    variacao = st.almoco.nome;
+    preco = st.almoco.preco || p.preco || 0;
+    if (st.almoco.desc) montagem.push(st.almoco.desc);
+  }
+
+  const obs = document.getElementById('pdv-modal-obs')?.value || '';
+  const qtd = st.qtd || 1;
+  const itemId = `${p.id}_${variacao || tipo}_${Date.now()}`;
+
+  for (let i = 0; i < qtd; i++) {
+    carrinhoPDV.push({
+      id: p.id,
+      _itemId: itemId + '_' + i,
+      nome: p.nome,
+      img: p.imagem_url,
+      preco,
+      qtd: 1,
+      variacao,
+      montagem: montagem.filter(Boolean),
+      obs,
+    });
+  }
+
+  atualizarCarrinhoPDV();
+  document.getElementById('pdv-complex-modal')?.remove();
 }
 
 // Cache seguro de produto — evita JSON.stringify em onclick (causava crash com montagem_config)
