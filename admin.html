@@ -287,10 +287,26 @@
             <div class="pdv-carrinho pdv-tab-active">
               <h4 class="pdv-carrinho-titulo">🛒 Novo Pedido</h4>
 
+              <!-- Tipo de atendimento PDV -->
+              <div style="display:flex;gap:6px;margin-bottom:10px">
+                <button type="button" class="pdv-tipo-btn pdv-tipo-ativo" id="pdv-tipo-local"
+                  onclick="pdvSelecionarTipo('local')" title="Comer no Local">
+                  🍽️ Local
+                </button>
+                <button type="button" class="pdv-tipo-btn" id="pdv-tipo-levar"
+                  onclick="pdvSelecionarTipo('levar')" title="Levar pra Casa">
+                  🥡 Levar
+                </button>
+                <button type="button" class="pdv-tipo-btn" id="pdv-tipo-delivery"
+                  onclick="pdvSelecionarTipo('delivery')" title="Enviar por Delivery">
+                  🛵 Delivery
+                </button>
+              </div>
+
               <div class="pdv-form-row">
-                <div class="pdv-mesa-col">
-                  <label class="pdv-label">Mesa <span class="obrig">*</span></label>
-                  <input type="number" id="balcao-mesa" class="form-control" placeholder="Nº" min="1" required />
+                <div class="pdv-mesa-col" id="pdv-mesa-col">
+                  <label class="pdv-label" id="pdv-mesa-label">Mesa <span class="obrig">*</span></label>
+                  <input type="number" id="balcao-mesa" class="form-control" placeholder="Nº" min="1" />
                 </div>
                 <div class="pdv-cliente-col">
                   <label class="pdv-label">Cliente</label>
@@ -300,6 +316,12 @@
               <div class="pdv-tel-row">
                 <label class="pdv-label">Telefone</label>
                 <input type="tel" id="balcao-telefone" class="form-control" placeholder="Ex: 0981234567" />
+              </div>
+              <!-- Endereço/link — só aparece no modo Delivery -->
+              <div id="pdv-delivery-row" style="display:none;margin-bottom:8px">
+                <label class="pdv-label">📍 Endereço / Link de localização</label>
+                <input type="text" id="balcao-endereco" class="form-control"
+                  placeholder="Cole o endereço ou link do Google Maps" />
               </div>
 
               <div class="pdv-lista-itens" id="pdv-lista"></div>
@@ -1334,4 +1356,13 @@
 </div>
 
 </body>
-</html>
+</html
+      /* PDV — Botões tipo de atendimento */
+      .pdv-tipo-btn {
+        flex: 1; padding: 8px 4px; border: 2px solid #ddd; border-radius: 10px;
+        background: #f8f9fa; font-size: 0.78rem; font-weight: 700; color: #666;
+        cursor: pointer; transition: all 0.15s; text-align: center; line-height: 1.3;
+      }
+      .pdv-tipo-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0faf0; }
+      .pdv-tipo-ativo { border-color: var(--primary) !important; background: #e8f5e8 !important; color: var(--primary) !important; }
+>

@@ -4305,6 +4305,32 @@ async function logout() {
 // 9. VENDA BALCÃO (VISUAL / NOVO)
 // =========================================
 let carrinhoPDV = [];
+let _pdvTipoEntrega = 'local'; // 'local' | 'levar' | 'delivery'
+
+function pdvSelecionarTipo(tipo) {
+  _pdvTipoEntrega = tipo;
+  ['local', 'levar', 'delivery'].forEach(t => {
+    const btn = document.getElementById(`pdv-tipo-${t}`);
+    if (btn) btn.classList.toggle('pdv-tipo-ativo', t === tipo);
+  });
+
+  // Mesa: obrigatória só no local
+  const mesaCol = document.getElementById('pdv-mesa-col');
+  const mesaLabel = document.getElementById('pdv-mesa-label');
+  const deliveryRow = document.getElementById('pdv-delivery-row');
+
+  if (tipo === 'local') {
+    if (mesaCol) mesaCol.style.display = '';
+    if (mesaLabel) mesaLabel.innerHTML = 'Mesa <span class="obrig">*</span>';
+    if (deliveryRow) deliveryRow.style.display = 'none';
+  } else if (tipo === 'levar') {
+    if (mesaCol) mesaCol.style.display = 'none';
+    if (deliveryRow) deliveryRow.style.display = 'none';
+  } else if (tipo === 'delivery') {
+    if (mesaCol) mesaCol.style.display = 'none';
+    if (deliveryRow) deliveryRow.style.display = 'block';
+  }
+}
 let produtosCachePDV = [];
 // Cotação carregada das configurações (fallback 1100)
 let _cotacaoPDV = 1100;
@@ -4461,22 +4487,16 @@ let _extrasGlobaisCache = null;
 async function _getExtrasGlobais() {
   if (_extrasGlobaisCache !== null) return _extrasGlobaisCache;
   // Tenta carregar das configurações (campo extras_globais no Supabase)
-  const { data } = await supa
-    .from('configuracoes')
-    .select('extras_globais')
-    .single()
-    .catch(() => ({ data: null }));
+  let data = null;
+  try {
+    const res = await supa.from('configuracoes').select('extras_globais').single();
+    data = res.data;
+  } catch (_) { data = null; }
   if (data && Array.isArray(data.extras_globais) && data.extras_globais.length > 0) {
     _extrasGlobaisCache = data.extras_globais;
   } else {
-    // Fallback com os extras da foto
-    _extrasGlobaisCache = [
-      { nome: 'Shoyu', preco: 2000 },
-      { nome: 'Taré (Teriaki)', preco: 3000 },
-      { nome: 'Sunomono', preco: 2000 },
-      { nome: 'Jengibre', preco: 2000 },
-      { nome: 'Wasabi', preco: 2000 },
-    ];
+    // Sem extras globais configurados — não mostra nada
+    _extrasGlobaisCache = [];
   }
   return _extrasGlobaisCache;
 }
@@ -4570,6 +4590,20 @@ function _mostrarModalComplexoPDV(produto, tipo, cfg) {
   else if (tipo === 'montavel') _pdvRenderMontavel(body);
   else if (tipo === 'almoco') _pdvRenderAlmoco(body);
 
+  // Adicionais do produto (extras específicos)
+  const extrasProds = cfg && cfg.extras && cfg.extras.length > 0 ? cfg.extras : null;
+  if (extrasProds) _pdvRenderExtras(body, extrasProds);
+
+  // Adicionais globais (se categoria não for bebida/extra)
+  if (_deveMostrarExtrasGlobais(produto)) {
+    _getExtrasGlobais().then((globais) => {
+      if (globais && globais.length > 0) {
+        const bodyEl = document.getElementById('pdv-complex-body');
+        if (bodyEl) _pdvRenderExtrasGlobais(bodyEl, globais);
+      }
+    });
+  }
+
   modal.appendChild(body);
 
   // Footer: preço + qty + confirmar
@@ -4595,42 +4629,6 @@ function _mostrarModalComplexoPDV(produto, tipo, cfg) {
 
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
-
-  // Injeta CSS necessário se ainda não existe
-  if (!document.getElementById('pdv-complex-css')) {
-    const s = document.createElement('style');
-    s.id = 'pdv-complex-css';
-    s.textContent = `
-      .pdvc-step{margin-bottom:18px}
-      .pdvc-step-title{font-weight:700;font-size:0.9rem;color:#444;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-      .pdvc-step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;font-size:0.75rem;font-weight:700;flex-shrink:0}
-      .pdvc-size-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-      .pdvc-size-card{flex:1;min-width:90px;padding:10px 8px;border:2px solid #e5e7eb;border-radius:10px;background:#fafafa;cursor:pointer;text-align:center;transition:border-color 0.15s}
-      .pdvc-size-card.selected{border-color:var(--primary);background:#f0faf0}
-      .pdvc-size-name{font-weight:700;font-size:0.88rem;color:#333}
-      .pdvc-size-info{font-size:0.75rem;color:#888;margin-top:2px}
-      .pdvc-size-price{font-size:0.85rem;color:var(--primary);font-weight:700;margin-top:4px}
-      .pdvc-divisao-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-      .pdvc-divisao-btn{padding:8px 14px;border:2px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer;font-size:0.85rem;font-weight:600;color:#555;transition:border-color 0.15s}
-      .pdvc-divisao-btn.selected{border-color:var(--primary);background:#f0faf0;color:var(--primary)}
-      .pdvc-sabores-grid{display:flex;flex-direction:column;gap:6px;margin-top:6px}
-      .pdvc-sabor-btn{display:flex;align-items:center;gap:10px;padding:9px 12px;border:2px solid #e5e7eb;border-radius:10px;background:#fafafa;cursor:pointer;text-align:left;width:100%;transition:border-color 0.15s}
-      .pdvc-sabor-btn.selected{border-color:var(--primary);background:#f0faf0}
-      .pdvc-sabor-img{width:40px;height:40px;border-radius:8px;object-fit:cover;flex-shrink:0}
-      .pdvc-sabor-nome{font-weight:600;font-size:0.88rem;color:#333}
-      .pdvc-sabor-desc{font-size:0.75rem;color:#888;margin-top:2px}
-      .pdvc-sabor-preco{font-size:0.8rem;color:var(--primary);font-weight:600;margin-top:2px}
-      .pdvc-borda-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-      .pdvc-borda-btn{padding:8px 12px;border:2px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer;font-size:0.82rem;font-weight:600;transition:border-color 0.15s}
-      .pdvc-borda-btn.selected{border-color:var(--primary);background:#f0faf0;color:var(--primary)}
-      .pdvc-check-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #eee;border-radius:8px;margin-bottom:4px;cursor:pointer}
-      .pdvc-check-item:hover{background:#f8f8f8}
-      .pdvc-slot-header{font-size:0.82rem;font-weight:700;color:#777;margin:10px 0 4px;text-transform:uppercase;letter-spacing:0.03em}
-      .pdvc-prato-btn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #e5e7eb;border-radius:10px;background:#fafafa;cursor:pointer;text-align:left;width:100%;margin-bottom:6px;transition:border-color 0.15s}
-      .pdvc-prato-btn.selected{border-color:var(--primary);background:#f0faf0}
-    `;
-    document.head.appendChild(s);
-  }
 }
 
 function _pdvTipoLabel(tipo) {
@@ -4660,6 +4658,12 @@ function _pdvModalAtualizarPreco() {
     preco = st.produto.preco || 0;
   }
   if (preco === 0) preco = st.produto.preco || 0;
+
+  // Soma extras marcados
+  document.querySelectorAll('#pdv-complex-modal .pdvc-extra-check:checked').forEach(cb => {
+    preco += parseInt(cb.dataset.preco || 0);
+  });
+
   const el = document.getElementById('pdv-modal-preco');
   if (el) el.textContent = 'Gs ' + (preco * (st.qtd || 1)).toLocaleString('es-PY');
   st._precoAtual = preco;
@@ -4939,6 +4943,45 @@ function _pdvRenderAlmoco(container) {
   container.appendChild(sec);
 }
 
+// ── Adicionais do produto ────────────────────────────────────────────────────
+function _pdvRenderExtras(container, extras) {
+  const sec = document.createElement('div');
+  sec.className = 'pdvc-step';
+  sec.id = 'pdvc-extras-prod';
+  sec.innerHTML = `<div class="pdvc-step-title">➕ Adicionais</div>`;
+  extras.forEach((ex, i) => {
+    const label = document.createElement('label');
+    label.className = 'pdvc-check-item';
+    label.innerHTML = `
+      <input type="checkbox" class="pdvc-extra-check" data-nome="${(ex.nome||'').replace(/"/g,'&quot;')}" data-preco="${ex.preco||0}"
+        style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer" onchange="_pdvModalAtualizarPreco()">
+      <span style="flex:1;font-size:0.88rem;color:#333">${ex.nome}</span>
+      ${ex.preco > 0 ? `<span style="font-size:0.82rem;color:var(--primary);font-weight:600">+ Gs ${(ex.preco).toLocaleString('es-PY')}</span>` : '<span style="font-size:0.78rem;color:#aaa">Grátis</span>'}`;
+    sec.appendChild(label);
+  });
+  container.appendChild(sec);
+}
+
+function _pdvRenderExtrasGlobais(container, globais) {
+  // Não duplica se já existir
+  if (container.querySelector('#pdvc-extras-globais')) return;
+  const sec = document.createElement('div');
+  sec.className = 'pdvc-step';
+  sec.id = 'pdvc-extras-globais';
+  sec.innerHTML = `<div class="pdvc-step-title">🧂 Adicionais (opcionais)</div>`;
+  globais.forEach((ex) => {
+    const label = document.createElement('label');
+    label.className = 'pdvc-check-item';
+    label.innerHTML = `
+      <input type="checkbox" class="pdvc-extra-check" data-nome="${(ex.nome||'').replace(/"/g,'&quot;')}" data-preco="${ex.preco||0}"
+        style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer" onchange="_pdvModalAtualizarPreco()">
+      <span style="flex:1;font-size:0.88rem;color:#333">${ex.nome}</span>
+      ${ex.preco > 0 ? `<span style="font-size:0.82rem;color:var(--primary);font-weight:600">+ Gs ${(ex.preco).toLocaleString('es-PY')}</span>` : '<span style="font-size:0.78rem;color:#aaa">Grátis</span>'}`;
+    sec.appendChild(label);
+  });
+  container.appendChild(sec);
+}
+
 // ── Confirmar ─────────────────────────────────────────────────────────────────
 function _pdvModalConfirmar() {
   const st = _pdvModalState;
@@ -4994,6 +5037,17 @@ function _pdvModalConfirmar() {
   const obs = document.getElementById('pdv-modal-obs')?.value || '';
   const qtd = st.qtd || 1;
   const itemId = `${p.id}_${variacao || tipo}_${Date.now()}`;
+
+  // Coleta adicionais marcados (produto + globais)
+  const extrasEscolhidos = [];
+  document.querySelectorAll('#pdv-complex-modal .pdvc-extra-check:checked').forEach(cb => {
+    const nome = cb.dataset.nome || '';
+    const ePreco = parseInt(cb.dataset.preco || 0);
+    if (nome) { extrasEscolhidos.push({ nome, preco: ePreco }); preco += ePreco; }
+  });
+  if (extrasEscolhidos.length > 0) {
+    montagem.push('Extras: ' + extrasEscolhidos.map(e => e.nome).join(', '));
+  }
 
   for (let i = 0; i < qtd; i++) {
     carrinhoPDV.push({
@@ -5409,17 +5463,35 @@ async function salvarPedidoBalcao() {
   if (carrinhoPDV.length === 0 && window._mesaAbertaId)
     return alert('Adicione ao menos 1 novo item antes de lançar.');
 
+  const tipo = _pdvTipoEntrega || 'local';
   const mesa = document.getElementById('balcao-mesa').value.trim();
-  if (!mesa) {
+  const endereco = document.getElementById('balcao-endereco')?.value.trim() || '';
+
+  // Validações por tipo
+  if (tipo === 'local' && !mesa) {
     alert('⚠️ Número de mesa é obrigatório!');
     document.getElementById('balcao-mesa').focus();
     return;
   }
+  if (tipo === 'delivery' && !endereco) {
+    alert('⚠️ Informe o endereço ou link para o Delivery!');
+    document.getElementById('balcao-endereco').focus();
+    return;
+  }
+
+  // Mapeamento para tipo_entrega do banco
+  const tipoEntregaBanco = tipo === 'delivery' ? 'delivery' : tipo === 'levar' ? 'retirada' : 'balcao';
+
+  // Endereço final
+  let enderecoFinal = '';
+  if (tipo === 'local') enderecoFinal = `Mesa ${mesa}`;
+  else if (tipo === 'levar') enderecoFinal = 'Retirada no balcão';
+  else if (tipo === 'delivery') enderecoFinal = endereco;
 
   const cli = document.getElementById('balcao-cliente').value || 'Cliente';
   const tel = document.getElementById('balcao-telefone').value || '';
   let pag = document.getElementById('balcao-pag').value;
-  const nomeFinal = `MESA ${mesa} - ${cli}`;
+  const nomeFinal = tipo === 'local' ? `MESA ${mesa} - ${cli}` : cli;
 
   // ── Tratamento Multipagamento ────────────────────────────────
   let obsPagPDV = 'Pagamento no Balcão';
@@ -5498,13 +5570,13 @@ async function salvarPedidoBalcao() {
   const pedido = {
     uid_temporal: `BALC-${Math.floor(Math.random() * 1000)}`,
     status: 'em_preparo',
-    tipo_entrega: 'balcao',
+    tipo_entrega: tipoEntregaBanco,
     total_geral: totalNovo,
     subtotal: totalNovo,
     frete_cobrado_cliente: 0,
     forma_pagamento: pag,
     itens: novosItens,
-    endereco_entrega: `Mesa ${mesa}`,
+    endereco_entrega: enderecoFinal,
     cliente_nome: nomeFinal,
     cliente_telefone: tel,
     obs_pagamento: obsPagPDV,
@@ -5524,6 +5596,9 @@ async function salvarPedidoBalcao() {
   document.getElementById('balcao-cliente').value = '';
   document.getElementById('balcao-mesa').value = '';
   document.getElementById('balcao-telefone').value = '';
+  if (document.getElementById('balcao-endereco')) document.getElementById('balcao-endereco').value = '';
+  // Reset tipo para Local
+  pdvSelecionarTipo('local');
   // Reset multipagamento PDV
   const multiPartesPDV = document.getElementById('multi-partes-pdv');
   if (multiPartesPDV) multiPartesPDV.innerHTML = '';
