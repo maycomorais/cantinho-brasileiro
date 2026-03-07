@@ -9,8 +9,8 @@ let autoConfirmTimer = null;
 // DADOS DE PAGAMENTO (Pix e Alias)
 const CHAVE_PIX = '97016071200';
 const NOME_PIX = 'Daniely Coelho da Silva';
-const DADOS_ALIAS = '';
-const ALIAS_PY = '';
+const DADOS_ALIAS = 'danyneto34@gmail.com';
+const ALIAS_PY = 'Daniely Coelho da Silva | Continental';
 
 function iniciarTimerAutoConfirmacao(pedidoId) {
     // 4 horas em milissegundos
