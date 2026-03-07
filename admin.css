@@ -2357,6 +2357,43 @@ select.form-control, select.input-modern {
     padding: 6px 8px;
 }
 
+/* Extras Globais — layout próprio, não herda o grid de 3 colunas */
+.extra-row-global {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+    background: #f9f9f9;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 10px;
+}
+.extra-row-global .eg-nome {
+    width: 100%;
+}
+.extra-row-global .eg-campos {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+.extra-row-global .eg-campos input[data-f="gnome"] {
+    flex: 3;
+    width: auto;
+    min-width: 0;
+}
+.extra-row-global .eg-campos input[data-f="gpreco"] {
+    flex: 1;
+    width: auto;
+    min-width: 70px;
+    max-width: 110px;
+}
+.extra-row-global .eg-cats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+}
+
 /* ── Cliente: Pizza modal ── */
 .pizza-size-grid {
     display: grid;

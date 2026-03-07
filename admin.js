@@ -2318,25 +2318,105 @@ function addOpcaoPreparo(valor = '') {
 }
 
 // ── ADICIONAIS GLOBAIS ────────────────────────
+// Cache de categorias para o seletor de extras globais
+let _categoriasParaExtras = [];
+
+async function _carregarCategoriasParaExtras() {
+  if (_categoriasParaExtras.length > 0) return; // já carregado
+  try {
+    const { data } = await supa.from('categorias').select('slug, nome').eq('ativo', true).order('ordem');
+    _categoriasParaExtras = data || [];
+  } catch(e) {
+    console.warn('Não foi possível carregar categorias para extras globais:', e.message);
+  }
+}
+
+function _buildCatCheckboxes(selecionadas = []) {
+  if (_categoriasParaExtras.length === 0) return '<span style="color:#aaa;font-size:0.75rem">Carregando...</span>';
+  return _categoriasParaExtras.map(c => {
+    const ativo = selecionadas.includes(c.slug);
+    const bg = ativo ? '#8e44ad' : '#f0f0f0';
+    const cor = ativo ? '#fff' : '#444';
+    const borda = ativo ? '#8e44ad' : '#ddd';
+    return `<button type="button" data-slug="${c.slug}" data-ativo="${ativo ? '1' : '0'}"
+      style="font-size:0.75rem;background:${bg};color:${cor};border:1px solid ${borda};
+             padding:2px 10px;border-radius:12px;cursor:pointer;margin:2px;white-space:nowrap"
+      onclick="_toggleCatPill(this)">${c.nome}</button>`;
+  }).join('');
+}
+
+function _toggleCatPill(btn) {
+  const ativo = btn.dataset.ativo === '1';
+  const novoAtivo = !ativo;
+  btn.dataset.ativo = novoAtivo ? '1' : '0';
+  btn.style.background = novoAtivo ? '#8e44ad' : '#f0f0f0';
+  btn.style.color = novoAtivo ? '#fff' : '#444';
+  btn.style.borderColor = novoAtivo ? '#8e44ad' : '#ddd';
+}
+
+function _toggleTodasPill(btn, row) {
+  const ativo = btn.dataset.ativo === '1';
+  const novoAtivo = !ativo;
+  btn.dataset.ativo = novoAtivo ? '1' : '0';
+  btn.style.background = novoAtivo ? '#27ae60' : '#f0f0f0';
+  btn.style.color = novoAtivo ? '#fff' : '#444';
+  btn.style.borderColor = novoAtivo ? '#27ae60' : '#ddd';
+  btn.textContent = novoAtivo ? '✅ Todas' : '⬜ Todas';
+  row.querySelector('[data-f="cats-wrap"]').style.display = novoAtivo ? 'none' : 'flex';
+}
+
 function addExtraGlobal(dados = {}) {
   const lista = document.getElementById('extras-globais-lista');
   const row = document.createElement('div');
-  row.className = 'extra-row';
-  row.style.marginBottom = '8px';
+  row.className = 'extra-row-global';
+
+  const catsSel = Array.isArray(dados.categorias) ? dados.categorias : [];
+  const todasAtivo = catsSel.length === 0;
+
   row.innerHTML = `
-    <input data-f="gnome" class="form-control" value="${dados.nome || ''}" placeholder="Ex: Shoyu Extra, Cream Cheese">
-    <input data-f="gpreco" type="number" class="form-control" value="${dados.preco || 0}" placeholder="Preço (0 = Grátis)">
-    <button class="btn btn-sm btn-danger" onclick="this.closest('.extra-row').remove()" title="Remover">✕</button>
+    <input data-f="gnome" class="form-control eg-nome" value="${dados.nome || ''}"
+      placeholder="Ex: Shoyu Extra, Cream Cheese">
+    <div class="eg-campos">
+      <input data-f="gpreco" type="number" class="form-control" value="${dados.preco || 0}"
+        placeholder="Preço (0 = Grátis)" style="width:auto;flex:1">
+      <button type="button" class="btn btn-sm btn-danger"
+        onclick="this.closest('.extra-row-global').remove()"
+        style="flex-shrink:0;white-space:nowrap">🗑 Remover</button>
+    </div>
+    <div class="eg-cats">
+      <span style="font-size:0.75rem;color:#888;margin-right:4px">Exibir em:</span>
+      <button type="button" data-f="gtodas" data-ativo="${todasAtivo ? '1' : '0'}"
+        style="font-size:0.75rem;background:${todasAtivo ? '#27ae60' : '#f0f0f0'};
+               color:${todasAtivo ? '#fff' : '#444'};border:1px solid ${todasAtivo ? '#27ae60' : '#ddd'};
+               padding:2px 10px;border-radius:12px;cursor:pointer;margin:2px"
+        onclick="_toggleTodasPill(this, this.closest('.extra-row-global'))">
+        ${todasAtivo ? '✅ Todas' : '⬜ Todas'}
+      </button>
+      <div data-f="cats-wrap" style="display:${todasAtivo ? 'none' : 'flex'};flex-wrap:wrap">
+        ${_buildCatCheckboxes(catsSel)}
+      </div>
+    </div>
   `;
+
   lista.appendChild(row);
 }
 
 async function salvarExtrasGlobais() {
   const extras = [];
-  document.querySelectorAll('#extras-globais-lista .extra-row').forEach(row => {
+  document.querySelectorAll('#extras-globais-lista .extra-row-global').forEach(row => {
     const nome = row.querySelector('[data-f="gnome"]').value.trim();
     const preco = parseFloat(row.querySelector('[data-f="gpreco"]').value) || 0;
-    if (nome) extras.push({ nome, preco });
+    if (!nome) return;
+
+    // Coleta categorias selecionadas (array vazio = todas)
+    const todasBtn = row.querySelector('[data-f="gtodas"]');
+    let categorias = [];
+    if (!todasBtn || todasBtn.dataset.ativo !== '1') {
+      row.querySelectorAll('[data-f="cats-wrap"] button[data-slug]').forEach(btn => {
+        if (btn.dataset.ativo === '1') categorias.push(btn.dataset.slug);
+      });
+    }
+    extras.push({ nome, preco, categorias });
   });
 
   const { error } = await supa.from('configuracoes').update({ extras_globais: extras }).eq('id', 1);
@@ -2356,6 +2436,10 @@ async function carregarExtrasGlobaisAdmin() {
   const lista = document.getElementById('extras-globais-lista');
   if (!lista) return;
   lista.innerHTML = '';
+
+  // Pré-carrega categorias para os seletores
+  await _carregarCategoriasParaExtras();
+
   try {
     const { data, error } = await supa.from('configuracoes').select('extras_globais').single();
 

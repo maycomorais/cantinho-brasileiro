@@ -679,9 +679,17 @@ function abrirModal(item) {
     _renderPreparo(preparoOpcoes, divOptions);
   }
 
-  // Extras globais (adicionais disponíveis para TODOS os produtos)
+  // Extras globais (adicionais disponíveis para produtos da categoria correspondente)
   if (EXTRAS_GLOBAIS.length > 0) {
-    _renderExtrasGlobais(EXTRAS_GLOBAIS, divOptions);
+    const catSlug = item.categoria_slug || '';
+    const extrasParaExibir = EXTRAS_GLOBAIS.filter(ex => {
+      // Array vazio ou ausente = exibe para todos
+      if (!ex.categorias || ex.categorias.length === 0) return true;
+      return ex.categorias.includes(catSlug);
+    });
+    if (extrasParaExibir.length > 0) {
+      _renderExtrasGlobais(extrasParaExibir, divOptions);
+    }
   }
 
   // Atualiza preço inicial
