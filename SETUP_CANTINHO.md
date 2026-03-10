@@ -31,7 +31,7 @@ git push
 ```
 
 ## 5. CNAME
-O arquivo CNAME está com `cantinho-brasileiro.com.py`.  
+O arquivo CNAME está com `cantinhobrasileiro.com.br`.  
 Altere se o domínio for diferente, ou delete o arquivo para usar o GitHub Pages padrão.
 
 ## Cores do tema

@@ -507,6 +507,7 @@ async function renderMenu() {
       montagem: p.montagem_config,
       e_montavel: p.e_montavel,
       subcategoria_slug: sub || null,
+      categoria_slug: cat,
     };
 
     if (sub) {
@@ -708,7 +709,7 @@ function _renderShake(cfg, container) {
   _shakeConfig = { tamanhoSelecionado: null, saborSelecionado: null };
 
   const tamanhos = shk.tamanhos || [];
-  const sabores = shk.sabores || [];
+  const sabores = (shk.sabores || []).filter(s => s.ativo !== false);
 
   // Passo 1: Tamanho
   const sec1 = document.createElement('section');

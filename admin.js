@@ -1938,20 +1938,20 @@ async function salvarProduto() {
     if (tipo === "shake") {
       const tamanhos = [];
       document.querySelectorAll(".shake-tamanho-row").forEach((row) => {
-        const nome = row.querySelector('[data-f="snome"]').value.trim();
-        const ml = parseInt(row.querySelector('[data-f="sml"]').value) || 0;
-        const preco =
-          parseFloat(row.querySelector('[data-f="spreco"]').value) || 0;
-        if (nome) tamanhos.push({ nome, ml, preco });
-      });
-      const sabores = [];
-      document.querySelectorAll(".shake-sabor-row").forEach((row) => {
-        const nome = row.querySelector('[data-f="snome"]').value.trim();
-        const preco =
-          parseFloat(row.querySelector('[data-f="spreco"]').value) || 0;
-        const img = row.querySelector('[data-f="simg"]')?.value?.trim() || "";
-        if (nome) sabores.push({ nome, preco, img });
-      });
+  const nome = row.querySelector('[data-f="snome"]').value.trim();
+  const ml = parseInt(row.querySelector('[data-f="sml"]').value) || 0;
+  const preco = parseFloat(row.querySelector('[data-f="spreco"]').value) || 0;
+  const numSabores = parseInt(row.querySelector('[data-f="snsabores"]')?.value) || 1;
+  if (nome) tamanhos.push({ nome, ml, preco, numSabores });
+});
+const sabores = [];
+document.querySelectorAll(".shake-sabor-row").forEach((row) => {
+  const nome = row.querySelector('[data-f="snome"]').value.trim();
+  const preco = parseFloat(row.querySelector('[data-f="spreco"]').value) || 0;
+  const img = row.querySelector('[data-f="simg"]')?.value?.trim() || "";
+  const ativo = row.querySelector('[data-f="sativo"]')?.checked !== false;
+  if (nome) sabores.push({ nome, preco, img, ativo });
+});
       configFinal.shake = { tamanhos, sabores };
       // preco base = menor tamanho
       const precos = tamanhos.map((t) => t.preco).filter((p) => p > 0);
@@ -4182,7 +4182,28 @@ function addShakeSabor(dados = {}) {
   row.className = "shake-sabor-row";
   row.style.cssText =
     "display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #dde;border-radius:8px;padding:8px 10px;";
-  row.innerHTML = `
+  // DEPOIS
+row.innerHTML = `
+    <div style="flex:2">
+      <label style="font-size:0.72rem;color:#888">Nome</label>
+      <input data-f="snome" class="form-control" value="${dados.nome || ""}" placeholder="Ex: P, M, G, 500ml">
+    </div>
+    <div style="flex:1">
+      <label style="font-size:0.72rem;color:#888">Volume (ml)</label>
+      <input data-f="sml" type="number" class="form-control" value="${dados.ml || ""}" placeholder="400">
+    </div>
+    <div style="flex:2">
+      <label style="font-size:0.72rem;color:#888">Preço (Gs)</label>
+      <input data-f="spreco" type="number" class="form-control" value="${dados.preco || ""}" placeholder="15000">
+    </div>
+    <div style="flex:1">
+      <label style="font-size:0.72rem;color:#888">Sabores</label>
+      <input data-f="snsabores" type="number" min="1" max="4" class="form-control" value="${dados.numSabores || 1}" placeholder="1">
+    </div>
+    <button onclick="this.closest('.shake-tamanho-row').remove()" style="background:none;border:none;color:#e74c3c;font-size:1.2rem;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
+  `;
+  const _saborPausado = dados.ativo === false;
+row.innerHTML = `
     <div style="flex:3">
       <label style="font-size:0.72rem;color:#888">Sabor</label>
       <input data-f="snome" class="form-control" value="${dados.nome || ""}" placeholder="Ex: Morango, Chocolate">
@@ -4195,8 +4216,22 @@ function addShakeSabor(dados = {}) {
       <label style="font-size:0.72rem;color:#888">URL Foto (opcional)</label>
       <input data-f="simg" class="form-control" value="${dados.img || ""}" placeholder="https://...">
     </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+      <label style="font-size:0.72rem;color:#888">Status</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.78rem;color:${_saborPausado ? '#c0392b' : '#16a34a'}">
+        <input data-f="sativo" type="checkbox" ${!_saborPausado ? 'checked' : ''}
+          onchange="
+            const p=this.checked;
+            this.closest('.shake-sabor-row').style.opacity=p?'1':'0.6';
+            this.parentElement.style.color=p?'#16a34a':'#c0392b';
+            this.parentElement.lastChild.textContent=p?' Disponível':' Pausado';
+          ">
+        <span>${_saborPausado ? ' Pausado' : ' Disponível'}</span>
+      </label>
+    </div>
     <button onclick="this.closest('.shake-sabor-row').remove()" style="background:none;border:none;color:#e74c3c;font-size:1.2rem;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
   `;
+if (_saborPausado) row.style.opacity = '0.6';
   lista.appendChild(row);
 }
 
@@ -5074,16 +5109,23 @@ function filtrarPDV(valor) {
 }
 
 // Categorias que NÃO recebem o upsell de extras globais
-const _CATS_SEM_EXTRAS_GLOBAIS = [
-  "bebidas",
-  "bebida",
-  "extras",
-  "extra",
-  "molhos",
-  "adicionais",
-];
+// Filtra os extras globais para um produto específico, usando o campo "categorias" de cada extra.
+// Se o extra tem categorias = [] ou ausente → aparece em todos os produtos.
+// Se tem categorias preenchidas → aparece apenas nos produtos das categorias listadas.
+function _filtrarExtrasGlobaisPorProduto(extras, produto) {
+  const catSlug = (produto.categoria_slug || "").toLowerCase().trim();
+  return extras.filter((ex) => {
+    if (!ex.categorias || ex.categorias.length === 0) return true;
+    return ex.categorias.some((c) => (c || "").toLowerCase().trim() === catSlug);
+  });
+}
 
-// Extras globais padrão do sushi (carregados das configurações ou hardcoded como fallback)
+// Mantida por compatibilidade — agora sempre retorna true (o filtro real é feito em _filtrarExtrasGlobaisPorProduto)
+function _deveMostrarExtrasGlobais(produto) {
+  return true;
+}
+
+// Extras globais carregados das configurações do Supabase
 let _extrasGlobaisCache = null;
 async function _getExtrasGlobais() {
   if (_extrasGlobaisCache !== null) return _extrasGlobaisCache;
@@ -5109,11 +5151,6 @@ async function _getExtrasGlobais() {
     _extrasGlobaisCache = [];
   }
   return _extrasGlobaisCache;
-}
-
-function _deveMostrarExtrasGlobais(produto) {
-  const cat = (produto.categoria_slug || "").toLowerCase();
-  return !_CATS_SEM_EXTRAS_GLOBAIS.some((c) => cat.includes(c));
 }
 
 function adicionarItemPDV(p) {
@@ -5145,21 +5182,112 @@ function adicionarItemPDV(p) {
     return;
   }
 
-  // Produto simples — adiciona direto
-  const existe = carrinhoPDV.find((i) => i.id === p.id && !i.variacao);
-  if (existe) existe.qtd++;
-  else carrinhoPDV.push({ ...p, qtd: 1 });
+  // Produto simples — abre mini-modal com qty + observação
+  _mostrarModalSimplesPDV(p);
+}
+
+// ─── Modal completo PDV — Pizza / Shake / Montável / Almoço ───────────────────
+// ─── Mini-modal para produtos SIMPLES (sem montagem) ─────────────────────────
+function _mostrarModalSimplesPDV(produto) {
+  document.getElementById("pdv-simples-modal")?.remove();
+
+  const cacheKey = "pdvs_" + (produto.id || Date.now());
+  window._pdvProdCache[cacheKey] = produto;
+
+  const overlay = document.createElement("div");
+  overlay.id = "pdv-simples-modal";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px";
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  let _sqtd = 1;
+
+  const modal = document.createElement("div");
+  modal.style.cssText = "background:#fff;border-radius:16px;padding:20px;max-width:380px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3)";
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <div style="font-weight:700;font-size:1rem;color:#333">${produto.nome}</div>
+        <div style="font-size:0.88rem;color:var(--primary);font-weight:600;margin-top:2px">
+          Gs ${(produto.preco || 0).toLocaleString("es-PY")}
+        </div>
+      </div>
+      <button onclick="document.getElementById('pdv-simples-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#bbb;line-height:1">✕</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+      <span style="font-size:0.82rem;color:#666;font-weight:600">Quantidade:</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="pdvs-btn-minus" type="button"
+          style="width:32px;height:32px;border-radius:50%;border:1.5px solid #ddd;background:#f9f9f9;font-size:1.2rem;cursor:pointer;line-height:1;font-weight:700"
+          onclick="(function(){const q=document.getElementById('pdvs-qty');const v=Math.max(1,parseInt(q.textContent)-1);q.textContent=v;document.getElementById('pdvs-total').textContent='Gs '+(${produto.preco||0}*v).toLocaleString('es-PY')})()">−</button>
+        <span id="pdvs-qty" style="font-weight:700;font-size:1.1rem;min-width:24px;text-align:center">1</span>
+        <button id="pdvs-btn-plus" type="button"
+          style="width:32px;height:32px;border-radius:50%;border:1.5px solid #ddd;background:#f9f9f9;font-size:1.2rem;cursor:pointer;line-height:1;font-weight:700"
+          onclick="(function(){const q=document.getElementById('pdvs-qty');const v=parseInt(q.textContent)+1;q.textContent=v;document.getElementById('pdvs-total').textContent='Gs '+(${produto.preco||0}*v).toLocaleString('es-PY')})()">+</button>
+      </div>
+      <span id="pdvs-total" style="margin-left:auto;font-weight:700;font-size:1rem;color:var(--primary)">
+        Gs ${(produto.preco || 0).toLocaleString("es-PY")}
+      </span>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label style="font-size:0.8rem;color:#777;font-weight:600;display:block;margin-bottom:5px">📝 Observação (opcional)</label>
+      <textarea id="pdvs-obs" placeholder="Ex: sem cebola, bem passado, molho à parte..."
+        rows="2"
+        style="width:100%;padding:9px 12px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:0.88rem;box-sizing:border-box;resize:none;font-family:inherit;outline:none;transition:border-color 0.15s"
+        onfocus="this.style.borderColor='var(--primary)'"
+        onblur="this.style.borderColor='#e5e7eb'"></textarea>
+    </div>
+
+    <button type="button" id="pdvs-confirmar"
+      style="width:100%;padding:13px;background:var(--primary);color:#fff;border:none;border-radius:10px;font-weight:700;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px"
+      onclick="_confirmarSimplesPDV('${cacheKey}')">
+      ✅ Adicionar ao Carrinho
+    </button>`;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  setTimeout(() => modal.querySelector("#pdvs-obs")?.focus(), 50);
+}
+
+function _confirmarSimplesPDV(cacheKey) {
+  const p = window._pdvProdCache[cacheKey];
+  if (!p) return;
+  const qtd = parseInt(document.getElementById("pdvs-qty")?.textContent) || 1;
+  const obs = document.getElementById("pdvs-obs")?.value?.trim() || "";
+
+  // Agrupa apenas se não tiver obs (para não misturar observações diferentes)
+  const existe = !obs && carrinhoPDV.find((i) => i.id === p.id && !i.variacao && !i.obs);
+  if (existe) {
+    existe.qtd += qtd;
+  } else {
+    for (let i = 0; i < qtd; i++) {
+      carrinhoPDV.push({
+        id: p.id,
+        nome: p.nome,
+        img: p.imagem_url,
+        preco: p.preco || 0,
+        qtd: 1,
+        variacao: "",
+        montagem: [],
+        obs,
+        categoria_slug: p.categoria_slug || "",
+      });
+    }
+  }
+
+  document.getElementById("pdv-simples-modal")?.remove();
   atualizarCarrinhoPDV();
 
-  // Upsell de extras globais (exceto bebidas e extras)
+  // Upsell de extras globais
   if (_deveMostrarExtrasGlobais(p)) {
     _getExtrasGlobais().then((extras) => {
-      if (extras && extras.length > 0) _mostrarUpsellExtrasPDV(p, extras);
+      const extrasFiltrados = _filtrarExtrasGlobaisPorProduto(extras, p);
+      if (extrasFiltrados && extrasFiltrados.length > 0) _mostrarUpsellExtrasPDV(p, extrasFiltrados);
     });
   }
 }
 
-// ─── Modal completo PDV — Pizza / Shake / Montável / Almoço ───────────────────
 let _pdvModalState = {};
 
 function _mostrarModalComplexoPDV(produto, tipo, cfg) {
@@ -5180,7 +5308,7 @@ function _mostrarModalComplexoPDV(produto, tipo, cfg) {
       sabores: [],
       bordaConfig: null,
     },
-    shake: { tamanhoSelecionado: null, saborSelecionado: null },
+    shake: { tamanhoSelecionado: null, saboresSelecionados: [], numSabores: 1 },
     montavel: {}, // { idxEtapa: [itens] }
     almoco: null, // prato selecionado
     qtd: 1,
@@ -5225,12 +5353,13 @@ function _mostrarModalComplexoPDV(produto, tipo, cfg) {
     cfg && cfg.extras && cfg.extras.length > 0 ? cfg.extras : null;
   if (extrasProds) _pdvRenderExtras(body, extrasProds);
 
-  // Adicionais globais (se categoria não for bebida/extra)
+  // Adicionais globais — filtrados pelas categorias configuradas em cada extra
   if (_deveMostrarExtrasGlobais(produto)) {
     _getExtrasGlobais().then((globais) => {
-      if (globais && globais.length > 0) {
+      const globaisFiltrados = _filtrarExtrasGlobaisPorProduto(globais, produto);
+      if (globaisFiltrados && globaisFiltrados.length > 0) {
         const bodyEl = document.getElementById("pdv-complex-body");
-        if (bodyEl) _pdvRenderExtrasGlobais(bodyEl, globais);
+        if (bodyEl) _pdvRenderExtrasGlobais(bodyEl, globaisFiltrados);
       }
     });
   }
@@ -5304,10 +5433,9 @@ function _pdvModalAtualizarPreco() {
     const saboresOk = (st.pizza.sabores || []).filter(Boolean);
     preco =
       _calcularBasePizza(tam, saboresOk) + (st.pizza.bordaConfig?.preco || 0);
-  } else if (st.tipo === "shake") {
-    preco =
-      (st.shake.tamanhoSelecionado?.preco || 0) +
-      (st.shake.saborSelecionado?.preco || 0);
+  }  else if (st.tipo === "shake") {
+  const extraSabores = (st.shake.saboresSelecionados || []).reduce((a, s) => a + (s.preco || 0), 0);
+  preco = (st.shake.tamanhoSelecionado?.preco || 0) + extraSabores;
   } else if (st.tipo === "almoco") {
     preco = st.almoco?.preco || st.produto.preco || 0;
   } else {
@@ -5602,60 +5730,82 @@ function _pdvPizzaSelecionarBorda(nome, preco, el) {
   _pdvModalAtualizarPreco();
 }
 
-// ── Shake ─────────────────────────────────────────────────────────────────────
+// ── Shake ──────────────────────────────────────────────────────────────────
 function _pdvRenderShake(container) {
   const cfg = _pdvModalState.cfg;
   const shk = cfg && cfg.shake ? cfg.shake : cfg || {};
 
-  // Tamanhos
+  // ── Seção 1: Tamanhos ─────────────────────────────
   const sec1 = document.createElement("div");
   sec1.className = "pdvc-step";
   sec1.innerHTML = `<div class="pdvc-step-title"><span class="pdvc-step-num">1</span> Escolha o tamanho</div><div class="pdvc-size-grid" id="pdvc-shk-size"></div>`;
   container.appendChild(sec1);
   const sizeGrid = sec1.querySelector("#pdvc-shk-size");
+
+  // ── Seção 2: Sabores (referência para atualizar título depois) ─────────
+  const sec2 = document.createElement("div");
+  sec2.className = "pdvc-step";
+  sec2.innerHTML = `<div class="pdvc-step-title" id="pdvc-shk-sabor-titulo"><span class="pdvc-step-num">2</span> Escolha o sabor</div><div class="pdvc-sabores-grid" id="pdvc-shk-sabores"></div>`;
+  container.appendChild(sec2);
+  const saborGrid = sec2.querySelector("#pdvc-shk-sabores");
+  const saborTitulo = sec2.querySelector("#pdvc-shk-sabor-titulo");
+
+  // Filtra apenas sabores disponíveis
+  const saboresAtivos = (shk.sabores || []).filter((s) => s.ativo !== false);
+
+  function _renderSabores() {
+    const numMax = _pdvModalState.shake.numSabores || 1;
+    const selecionados = _pdvModalState.shake.saboresSelecionados;
+    saborTitulo.innerHTML = `<span class="pdvc-step-num">2</span> Escolha ${numMax === 1 ? "o sabor" : `até ${numMax} sabores`} <span style="font-size:0.78rem;color:#aaa;font-weight:400">(${selecionados.length}/${numMax})</span>`;
+    saborGrid.innerHTML = "";
+    saboresAtivos.forEach((s) => {
+      const jaSel = selecionados.some((x) => x.nome === s.nome);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pdvc-sabor-btn" + (jaSel ? " selected" : "");
+      const imgHtml = s.img
+        ? `<img src="${s.img}" class="pdvc-sabor-img" onerror="this.style.display='none'">`
+        : `<span style="font-size:1.5rem">🥤</span>`;
+      btn.innerHTML = `${imgHtml}<div><div class="pdvc-sabor-nome">${s.nome}</div>${s.preco ? `<div class="pdvc-sabor-preco">+ Gs ${s.preco.toLocaleString("es-PY")}</div>` : ""}</div>`;
+      btn.onclick = () => {
+        const arr = _pdvModalState.shake.saboresSelecionados;
+        const idx = arr.findIndex((x) => x.nome === s.nome);
+        if (idx >= 0) {
+          // Deseleciona
+          arr.splice(idx, 1);
+        } else {
+          if (arr.length >= numMax) {
+            if (numMax === 1) arr.splice(0, 1); // radio behavior para 1 sabor
+            else { alert(`Máximo ${numMax} sabores!`); return; }
+          }
+          arr.push({ nome: s.nome, preco: s.preco || 0 });
+        }
+        _renderSabores();
+        _pdvModalAtualizarPreco();
+      };
+      saborGrid.appendChild(btn);
+    });
+  }
+
+  // Renderiza tamanhos
   (shk.tamanhos || []).forEach((tam) => {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "pdvc-size-card";
-    card.innerHTML = `<div class="pdvc-size-name">${tam.nome}</div>${tam.ml ? `<div class="pdvc-size-info">${tam.ml}ml</div>` : ""}<div class="pdvc-size-price">Gs ${(tam.preco || 0).toLocaleString("es-PY")}</div>`;
+    card.innerHTML = `<div class="pdvc-size-name">${tam.nome}</div>${tam.ml ? `<div class="pdvc-size-info">${tam.ml}ml</div>` : ""}<div class="pdvc-size-price">Gs ${(tam.preco || 0).toLocaleString("es-PY")}</div>${(tam.numSabores || 1) > 1 ? `<div style="font-size:0.7rem;color:#8e44ad;font-weight:600;margin-top:2px">${tam.numSabores} sabores</div>` : ""}`;
     card.onclick = () => {
-      sizeGrid
-        .querySelectorAll(".pdvc-size-card")
-        .forEach((c) => c.classList.remove("selected"));
+      sizeGrid.querySelectorAll(".pdvc-size-card").forEach((c) => c.classList.remove("selected"));
       card.classList.add("selected");
       _pdvModalState.shake.tamanhoSelecionado = tam;
+      _pdvModalState.shake.numSabores = tam.numSabores || 1;
+      _pdvModalState.shake.saboresSelecionados = []; // reset sabores ao trocar tamanho
+      _renderSabores();
       _pdvModalAtualizarPreco();
     };
     sizeGrid.appendChild(card);
   });
 
-  // Sabores
-  const sec2 = document.createElement("div");
-  sec2.className = "pdvc-step";
-  sec2.innerHTML = `<div class="pdvc-step-title"><span class="pdvc-step-num">2</span> Escolha o sabor</div><div class="pdvc-sabores-grid" id="pdvc-shk-sabores"></div>`;
-  container.appendChild(sec2);
-  const saborGrid = sec2.querySelector("#pdvc-shk-sabores");
-  (shk.sabores || []).forEach((s) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "pdvc-sabor-btn";
-    const imgHtml = s.img
-      ? `<img src="${s.img}" class="pdvc-sabor-img" onerror="this.style.display='none'">`
-      : `<span style="font-size:1.5rem">🥤</span>`;
-    btn.innerHTML = `${imgHtml}<div><div class="pdvc-sabor-nome">${s.nome}</div>${s.preco ? `<div class="pdvc-sabor-preco">+ Gs ${s.preco.toLocaleString("es-PY")}</div>` : ""}</div>`;
-    btn.onclick = () => {
-      saborGrid
-        .querySelectorAll(".pdvc-sabor-btn")
-        .forEach((b) => b.classList.remove("selected"));
-      btn.classList.add("selected");
-      _pdvModalState.shake.saborSelecionado = {
-        nome: s.nome,
-        preco: s.preco || 0,
-      };
-      _pdvModalAtualizarPreco();
-    };
-    saborGrid.appendChild(btn);
-  });
+  _renderSabores();
 }
 
 // ── Montável ──────────────────────────────────────────────────────────────────
@@ -5820,24 +5970,24 @@ function _pdvModalConfirmar() {
     if (st.pizza.bordaConfig)
       montagem.push(`Borda: ${st.pizza.bordaConfig.nome}`);
   } else if (st.tipo === "shake") {
-    if (!st.shake.tamanhoSelecionado) {
-      alert("Escolha um tamanho para o Shake!");
-      return;
-    }
-    if (!st.shake.saborSelecionado) {
-      alert("Escolha um sabor para o Shake!");
-      return;
-    }
-    preco =
-      (st.shake.tamanhoSelecionado.preco || 0) +
-      (st.shake.saborSelecionado.preco || 0);
-    variacao = [
-      st.shake.tamanhoSelecionado.nome,
-      st.shake.saborSelecionado.nome,
-    ]
-      .filter(Boolean)
-      .join(" – ");
-    montagem = [variacao];
+  if (!st.shake.tamanhoSelecionado) {
+    alert("Escolha um tamanho para o Shake!");
+    return;
+  }
+  const numMax = st.shake.numSabores || 1;
+  const sabores = st.shake.saboresSelecionados || [];
+  if (sabores.length === 0) {
+    alert("Escolha ao menos 1 sabor para o Shake!");
+    return;
+  }
+  if (sabores.length < numMax) {
+    alert(`Escolha ${numMax} sabores! (selecionado: ${sabores.length})`);
+    return;
+  }
+  const extraSabores = sabores.reduce((a, s) => a + (s.preco || 0), 0);
+  preco = (st.shake.tamanhoSelecionado.preco || 0) + extraSabores;
+  variacao = st.shake.tamanhoSelecionado.nome;
+  montagem = [sabores.map((s) => s.nome).join(" + ")];
   } else if (st.tipo === "montavel") {
     const cfg = st.cfg;
     const etapas = Array.isArray(cfg)
@@ -5964,10 +6114,11 @@ function _mostrarModalVariacaoPDV(produto, variacoes) {
     btn.onclick = () => {
       const p = window._pdvProdCache[cacheKey];
       if (!p) return;
+      const obs = document.getElementById("pdv-var-obs")?.value?.trim() || "";
       const existe = carrinhoPDV.find(
-        (i) => i.id === p.id && i.variacao === v.nome,
+        (i) => i.id === p.id && i.variacao === v.nome && !i.obs,
       );
-      if (existe) {
+      if (existe && !obs) {
         existe.qtd++;
       } else {
         carrinhoPDV.push({
@@ -5978,7 +6129,7 @@ function _mostrarModalVariacaoPDV(produto, variacoes) {
           qtd: 1,
           variacao: v.nome,
           montagem: [],
-          obs: "",
+          obs,
         });
       }
       atualizarCarrinhoPDV();
@@ -5988,6 +6139,16 @@ function _mostrarModalVariacaoPDV(produto, variacoes) {
   });
 
   modal.appendChild(lista);
+
+  // Campo de observação
+  const obsDiv = document.createElement("div");
+  obsDiv.style.cssText = "margin-top:14px";
+  obsDiv.innerHTML = `
+    <label style="font-size:0.78rem;color:#888;font-weight:600;display:block;margin-bottom:4px">📝 Observação (opcional)</label>
+    <input id="pdv-var-obs" type="text" placeholder="Ex: sem cebola, bem passado..." style="width:100%;padding:9px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:0.87rem;box-sizing:border-box;outline:none" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='#e5e7eb'">
+  `;
+  modal.appendChild(obsDiv);
+
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 }
@@ -6098,6 +6259,45 @@ function removerItemPDV(idx) {
   atualizarCarrinhoPDV();
 }
 
+// Permite editar a observação de qualquer item já adicionado ao carrinho PDV
+function pdvEditarObs(idx) {
+  const item = carrinhoPDV[idx];
+  if (!item) return;
+
+  // Remove popup anterior se existir
+  document.getElementById("pdv-obs-popup")?.remove();
+
+  const popup = document.createElement("div");
+  popup.id = "pdv-obs-popup";
+  popup.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px";
+  popup.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:20px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.25)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <strong style="font-size:0.95rem">📝 Observação — ${item.nome}</strong>
+        <button onclick="document.getElementById('pdv-obs-popup').remove()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#999">✕</button>
+      </div>
+      <input id="pdv-obs-input" type="text" value="${(item.obs || '').replace(/"/g, '&quot;')}"
+        placeholder="Ex: sem cebola, bem passado..."
+        style="width:100%;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:0.9rem;box-sizing:border-box"
+        onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='#ddd'">
+      <button onclick="pdvSalvarObs(${idx})"
+        style="width:100%;margin-top:12px;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.9rem">
+        ✅ Salvar
+      </button>
+    </div>`;
+  document.body.appendChild(popup);
+  popup.querySelector("#pdv-obs-input").focus();
+  // Fechar ao clicar fora
+  popup.addEventListener("click", (e) => { if (e.target === popup) popup.remove(); });
+}
+
+function pdvSalvarObs(idx) {
+  const val = document.getElementById("pdv-obs-input")?.value?.trim() || "";
+  if (carrinhoPDV[idx]) carrinhoPDV[idx].obs = val;
+  document.getElementById("pdv-obs-popup")?.remove();
+  atualizarCarrinhoPDV();
+}
+
 function atualizarCarrinhoPDV() {
   const lista = document.getElementById("pdv-lista");
   const totalEl = document.getElementById("balcao-total");
@@ -6164,10 +6364,20 @@ function atualizarCarrinhoPDV() {
       total += item.preco * item.qtd;
       const row = document.createElement("div");
       row.className = "pdv-item-row";
+      const obsHtml = item.obs
+        ? `<div style="font-size:0.75rem;color:#888;font-style:italic;margin-top:2px">📝 ${item.obs}</div>`
+        : "";
+      const varHtml = item.variacao
+        ? `<span style="font-size:0.76rem;color:var(--primary);font-weight:600"> · ${item.variacao}</span>`
+        : "";
       row.innerHTML = `
-        <div class="pdv-item-info"><strong>${item.qtd}x</strong> ${item.nome}</div>
+        <div class="pdv-item-info">
+          <strong>${item.qtd}x</strong> ${item.nome}${varHtml}
+          ${obsHtml}
+        </div>
         <div class="pdv-item-acoes">
           <span>Gs ${(item.preco * item.qtd).toLocaleString("es-PY")}</span>
+          <button title="Observação" onclick="pdvEditarObs(${idx})" style="background:none;border:none;cursor:pointer;font-size:1rem;padding:2px 4px;opacity:0.6" title="Editar observação">📝</button>
           <button class="btn btn-sm btn-danger" onclick="removerItemPDV(${idx})">✕</button>
         </div>`;
       lista.appendChild(row);
