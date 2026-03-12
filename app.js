@@ -811,7 +811,7 @@ function _atualizarPrecoShake() {
   const tamPreco = _shakeConfig.tamanhoSelecionado?.preco || 0;
   const saborExtra = _shakeConfig.saborSelecionado?.preco || 0;
   const total = tamPreco + saborExtra;
-  const el = document.getElementById('product-price');
+  const el = document.getElementById('modal-price');
   if (el && total > 0) el.textContent = 'Gs ' + total.toLocaleString('es-PY');
 }
 
@@ -3067,7 +3067,7 @@ async function iniciarEdicaoCarrinho(pedidoId) {
 
     // Adiciona banner de aviso no topo do checkout
     setTimeout(() => {
-        const checkout = document.getElementById('checkout-panel') || document.querySelector('.checkout-container');
+        const checkout = document.querySelector('.checkout-body');
         if (checkout) {
             const banner = document.createElement('div');
             banner.id = 'banner-edicao';
@@ -3109,51 +3109,6 @@ function iniciarTrackingRealtime(pedidoId) {
     localStorage.setItem('cantinho_pedido_uid', pedidoId);
     _iniciarPollingTracking(pedidoId, pedidoId);
     _tentarCanalRealtime(pedidoId, pedidoId);
-}
-
-let saboresSelecionados = []; // Array global para guardar a pizza atual
-
-// Função auxiliar para calcular preço da pizza
-function calcularTotalPizza() {
-    if (saboresSelecionados.length === 0) return 0;
-
-    // 1. Encontra o sabor mais caro (REGRA DE OURO)
-    let maiorPreco = 0;
-    saboresSelecionados.forEach(sabor => {
-        if (sabor.preco > maiorPreco) maiorPreco = sabor.preco;
-    });
-
-    // 2. Verifica se tem borda
-    const bordaPreco = produtoAtual.bordaSelecionada ? produtoAtual.bordaSelecionada.preco : 0;
-
-    // 3. Atualiza botão
-    const total = maiorPreco + bordaPreco;
-    document.getElementById('btn-add-carrinho').innerText = 
-        `Adicionar Gs ${total.toLocaleString('es-PY')}`;
-        
-    return total;
-}
-
-// Função para adicionar sabor (deve ser ligada aos checkboxes/cards da UI)
-function toggleSaborPizza(saborObj, maxSabores) {
-    const index = saboresSelecionados.findIndex(s => s.id === saborObj.id);
-
-    if (index > -1) {
-        // Se já tá, remove
-        saboresSelecionados.splice(index, 1);
-    } else {
-        // Se não tá, verifica limite (1/2, 1/3, 1/4)
-        if (saboresSelecionados.length < maxSabores) {
-            saboresSelecionados.push(saborObj);
-        } else {
-            alert(`Você escolheu uma pizza de ${maxSabores} sabores. Remova um para trocar.`);
-            return;
-        }
-    }
-    
-    // Recalcula visual
-    renderizarSaboresSelecionados(); // Função que pinta a pizza
-    calcularTotalPizza();
 }
 
 // ==========================================

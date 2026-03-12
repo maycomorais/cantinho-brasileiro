@@ -304,18 +304,18 @@ async function carregarPedidos(silencioso = false) {
   const cardsDiv = document.getElementById("lista-pedidos-cards");
   if (cardsDiv) cardsDiv.innerHTML = "";
 
-  // ── AUTO-CONFIRM: pedidos saiu_entrega há mais de 4h ──────────────────────
-  const _QUATRO_HORAS_MS = 4 * 60 * 60 * 1000;
+  // ── AUTO-CONFIRM: pedidos saiu_entrega há mais de 3h ──────────────────────
+  const _TRES_HORAS_MS = 3 * 60 * 60 * 1000;
   const _agora = Date.now();
   const pedidosParaAutoConfirmar = (pedidos || []).filter(
     (p) =>
       p.status === "saiu_entrega" &&
       p.tempo_saiu_entrega &&
-      _agora - new Date(p.tempo_saiu_entrega).getTime() > _QUATRO_HORAS_MS,
+      _agora - new Date(p.tempo_saiu_entrega).getTime() > _TRES_HORAS_MS,
   );
   for (const p of pedidosParaAutoConfirmar) {
     console.log(
-      `⏰ Auto-confirmando entrega do pedido #${p.id} (mais de 4h em saiu_entrega)`,
+      `⏰ Auto-confirmando entrega do pedido #${p.id} (mais de 3h em saiu_entrega)`,
     );
     await supa
       .from("pedidos")
@@ -1632,10 +1632,14 @@ function enviarRotaZap() {
       // Agora 'p' tem o objeto COMPLETO do banco
       const p = JSON.parse(decodeURIComponent(chk.value));
 
-      // Atualiza status no banco para "saiu_entrega" ou "entregue"
+      // Atualiza status no banco para "saiu_entrega" — salva timestamp para auto-confirm
       supa
         .from("pedidos")
-        .update({ status: "saiu_entrega", motoboy_id: selMoto.value })
+        .update({
+          status: "saiu_entrega",
+          motoboy_id: selMoto.value,
+          tempo_saiu_entrega: new Date().toISOString(),
+        })
         .eq("id", p.id)
         .then();
 
@@ -4933,7 +4937,7 @@ function pdvIniciarTabs() {
 async function logout() {
   const { error } = await supa.auth.signOut();
   if (error) alert("Erro ao sair: " + error.message);
-  else window.location.href = "login.html";
+  else window.location.replace("login.html");
 }
 
 // =========================================
@@ -6064,6 +6068,7 @@ function _pdvModalConfirmar() {
       variacao,
       montagem: montagem.filter(Boolean),
       obs,
+      categoria_slug: p.categoria_slug || "",
     });
   }
 
@@ -6149,6 +6154,7 @@ function _mostrarModalVariacaoPDV(produto, variacoes) {
           variacao: v.nome,
           montagem: [],
           obs,
+          categoria_slug: p.categoria_slug || "",
         });
       }
       atualizarCarrinhoPDV();
