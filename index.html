@@ -1,1374 +1,892 @@
-<!doctype html>
-<html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cantinho Brasileiro — Admin</title>
-    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-    />
-    <link rel="stylesheet" href="admin.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <base target="_blank">
+<!DOCTYPE html>
+<html lang="es-PY">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a7a2e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Cantinho Brasileiro">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
+    <title>Cantinho Brasileiro - Delivery</title>
+    <!-- Open Graph / WhatsApp / Facebook -->
+    <meta property="og:type"        content="website">
+    <meta property="og:url"         content="https://cantinhobrasileiro.com.br/">
+    <meta property="og:title"       content="Cantinho Brasileiro 🍕">
+    <meta property="og:description" content="Pedi tu pizza y comida favorita con entrega rápida">
+    <meta property="og:image"       content="https://media.bio.site/sites/79CC2018-24E6-48C4-A856-4C1E36908B60/AWwTtFWnmuqVysXARE2MRX.png">
+    <meta property="og:image:width"  content="1200">
+    <meta property="og:image:height" content="630">
+    <!-- Twitter Card -->
+    <meta name="twitter:card"        content="summary_large_image">
+    <meta name="twitter:title"       content="Cantinho Brasileiro 🍕">
+    <meta name="twitter:description" content="Pedi tu pizza y comida favorita con entrega rápida">
+    <meta name="twitter:image"       content="https://media.bio.site/sites/79CC2018-24E6-48C4-A856-4C1E36908B60/AWwTtFWnmuqVysXARE2MRX.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="img/favicon-16x16.png">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="translations.js"></script>
+<base target="_blank">
 </head>
-  <body>
-    <audio id="som-campainha" preload="auto" loop>
-      <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg" />
-      <source src="https://freesound.org/data/previews/320/320655_5260872-lq.mp3" type="audio/mpeg" />
-    </audio>
-
-    <div class="sidebar">
-      <div class="brand">CANTINHO ADMIN</div>
-
-      <div
-        style="padding: 10px; text-align: center; font-size: 0.8rem; background: rgba(0, 0, 0, 0.2)"
-      >
-        <i class="fas fa-user-circle"></i> <span id="user-cargo">...</span><br />
-        <small id="user-email">...</small>
-      </div>
-
-      <div class="menu">
-        <div class="menu-item active" onclick="showTab('dashboard', event)">
-          <i class="fas fa-chart-line"></i><span class="mobile-hide"> Visão</span>
-        </div>
-
-        <div class="menu-item" onclick="showTab('pdv', event)" style="color: #ffca28">
-          <i class="fas fa-cash-register"></i><span class="mobile-hide"> PDV Balcão</span>
-        </div>
-
-        <div class="menu-item" onclick="showTab('pedidos', event)">
-          <i class="fas fa-clipboard-list"></i><span class="mobile-hide"> Pedidos</span>
-        </div>
-
-        <div class="menu-item" onclick="showTab('cozinha', event)">
-          <i class="fas fa-fire"></i><span class="mobile-hide"> Cozinha</span>
-        </div>
-
-        <div class="menu-item restrito-gerente" onclick="showTab('equipe', event)">
-          <i class="fas fa-users"></i><span class="mobile-hide"> Equipe</span>
-        </div>
-
-        <div class="menu-item" onclick="showTab('produtos', event)">
-            <i class="fas fa-utensils"></i><span> Prod.</span>
-        </div>
-
-        <div class="menu-item" onclick="showTab('categorias', event)">
-            <i class="fas fa-tags"></i><span> Cats</span>
-        </div>
-        
-        <div class="menu-item" onclick="showTab('motoboys', event)">
-            <i class="fas fa-motorcycle"></i><span> Motos</span>
-        </div>
-
-        <div class="menu-item restrito-gerente" onclick="showTab('financeiro', event)">
-          <i class="fas fa-wallet"></i><span class="mobile-hide"> Financeiro</span>
-        </div>
-        <div class="menu-item restrito-func" onclick="showTab('configuracoes', event)">
-          <i class="fas fa-cogs"></i><span class="mobile-hide"> Config</span>
-        </div>
-      </div>
-
-      <div class="menu-item" onclick="logout()" style="margin-top: auto; background: #c0392b">
-        <i class="fas fa-sign-out-alt"></i><span class="mobile-hide "> Sair</span>
-      </div>
-    </div>
-
-    <div class="main-content">
-      <div id="dashboard" class="tab-content active">
-        <div class="dash-header">
-          <div class="dash-title">
-            <span class="dash-greeting" id="dash-greeting">Bom dia</span>
-            <h2>Painel de Controle</h2>
-          </div>
-          <div class="dash-date" id="dash-date"></div>
-        </div>
-
-        <div class="kpi-grid dash-kpi-grid">
-          <div class="kpi-card kpi-accent-green">
-            <div class="kpi-icon"><i class="fas fa-coins"></i></div>
-            <div class="kpi-info">
-              <div class="kpi-label">Vendas Hoje</div>
-              <div class="value" id="kpi-vendas">Gs 0</div>
-            </div>
-          </div>
-          <div class="kpi-card kpi-accent-blue">
-            <div class="kpi-icon"><i class="fas fa-receipt"></i></div>
-            <div class="kpi-info">
-              <div class="kpi-label">Pedidos Hoje</div>
-              <div class="value" id="kpi-pedidos">0</div>
-            </div>
-          </div>
-          <div class="kpi-card kpi-accent-orange">
-            <div class="kpi-icon"><i class="fas fa-motorcycle"></i></div>
-            <div class="kpi-info">
-              <div class="kpi-label">A Pagar Motoboys</div>
-              <div class="value" id="kpi-moto">Gs 0</div>
-            </div>
-          </div>
-          <div class="kpi-card kpi-accent-red">
-            <div class="kpi-icon"><i class="fas fa-fire-alt"></i></div>
-            <div class="kpi-info">
-              <div class="kpi-label">Em Preparo</div>
-              <div class="value" id="kpi-em-preparo">0</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="dash-rankings">
-          <div class="card ranking-card">
-            <div class="ranking-header">
-              <i class="fas fa-trophy" style="color:#f59e0b"></i>
-              <h3>Top Produtos</h3>
-              <select id="rank-prod-periodo" class="rank-periodo-select" onchange="carregarRankingProdutos()" style="margin-left:auto">
-                <option value="hoje">Hoje</option>
-                <option value="7">7 dias</option>
-                <option value="30">30 dias</option>
-                <option value="mes">Este mês</option>
-                <option value="custom">Período</option>
-              </select>
-            </div>
-            <div id="rank-prod-custom" style="display:none;gap:4px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-              <input type="date" id="rank-prod-inicio" class="rank-data-input">
-              <span style="font-size:0.75rem;color:#888">até</span>
-              <input type="date" id="rank-prod-fim" class="rank-data-input">
-              <button class="btn btn-sm btn-primary" onclick="carregarRankingProdutos()" style="padding:3px 10px;font-size:0.75rem">Ir</button>
-            </div>
-            <div id="ranking-produtos-list" class="ranking-list"></div>
-          </div>
-          <div class="card ranking-card">
-            <div class="ranking-header">
-              <i class="fas fa-star" style="color:#a78bfa"></i>
-              <h3>Clientes Assíduos</h3>
-              <select id="rank-cli-periodo" class="rank-periodo-select" onchange="carregarRankingClientes()" style="margin-left:auto">
-                <option value="tudo">Todos</option>
-                <option value="hoje">Hoje</option>
-                <option value="7">7 dias</option>
-                <option value="30">30 dias</option>
-                <option value="mes">Este mês</option>
-                <option value="custom">Período</option>
-              </select>
-            </div>
-            <div id="rank-cli-custom" style="display:none;gap:4px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-              <input type="date" id="rank-cli-inicio" class="rank-data-input">
-              <span style="font-size:0.75rem;color:#888">até</span>
-              <input type="date" id="rank-cli-fim" class="rank-data-input">
-              <button class="btn btn-sm btn-primary" onclick="carregarRankingClientes()" style="padding:3px 10px;font-size:0.75rem">Ir</button>
-            </div>
-            <div id="ranking-clientes-list" class="ranking-list"></div>
-          </div>
-        </div>
-
-        <!-- legado para JS existente -->
-        <table id="tabela-ranking" style="display:none"><tbody></tbody></table>
-      </div>
-
-      <div id="pedidos" class="tab-content">
-        <!-- CABEÇALHO PEDIDOS -->
-        <div class="pedidos-topbar">
-          <!-- Linha 1: Título + badge delivery + refresh -->
-          <div class="pedidos-topbar-row1">
-            <div class="pedidos-topbar-left">
-              <h2 class="section-title">Pedidos</h2>
-              <span id="badge-delivery-status" class="delivery-badge delivery-open"
-                onclick="carregarStatusDelivery()" title="Clique para atualizar">
-                🟢 Aberto
-              </span>
-              <span id="badge-horario-extra" class="delivery-badge badge-extra" style="display:none"></span>
-            </div>
-            <div class="pedidos-topbar-right">
-              <button class="topbar-btn btn-refresh-icon" onclick="carregarPedidos()" title="Atualizar">
-                <i class="fas fa-sync-alt"></i>
-              </button>
-            </div>
-          </div>
-
-          <!-- Linha 2: Ações de controle do delivery -->
-          <div class="pedidos-topbar-row2">
-            <button class="topbar-btn btn-horario" onclick="abrirModalEstenderHorario()" title="Estender horário">
-              <i class="fas fa-clock"></i> <span>+Horário</span>
-            </button>
-            <button class="topbar-btn btn-encerrar" onclick="avisarEncerramentoDelivery()" title="Encerrar delivery">
-              <i class="fas fa-ban"></i> <span>Encerrar</span>
-            </button>
-            <button class="topbar-btn btn-reabrir" onclick="reabrirDelivery()" title="Reabrir delivery">
-              <i class="fas fa-check"></i> <span>Reabrir</span>
-            </button>
-            <button class="topbar-btn btn-relatorio" onclick="abrirRelatorio()" title="Relatório">
-              <i class="fas fa-clipboard-list"></i> <span>Relatório</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="card rota-card">
-          <div class="rota-card-title"><i class="fas fa-route"></i> Despachar Rota</div>
-          <div class="rota-controls">
-            <select id="sel-motoboy" class="form-control">
-              <option value="">Selecione Motoboy...</option>
-            </select>
-            <button class="btn btn-success btn-zap" onclick="enviarRotaZap()">
-              <i class="fab fa-whatsapp"></i> Enviar Rota
-            </button>
-          </div>
-        </div>
-
-        <div class="pedidos-list" id="lista-pedidos-cards"></div>
-
-        <!-- Tabela legado (oculta no mobile, visível desktop) -->
-        <div class="card pedidos-table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th width="50">Rota</th>
-                <th>ID</th>
-                <th>Cliente</th>
-                <th>Status</th>
-                <th>Total</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="lista-pedidos"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div id="cozinha" class="tab-content">
-        <h2 class="section-title">Monitor de Cozinha (KDS)</h2>
-        <div class="cozinha-grid" id="grid-cozinha"></div>
-      </div>
-
-      <div id="pdv" class="tab-content">
-        <!-- PDV Header -->
-        <div class="pdv-header-bar">
-          <h2 class="section-title" style="margin:0">🏪 Venda Balcão (PDV)</h2>
-          <div class="pdv-view-btns">
-            <button id="pdv-view-btn-venda" class="pdv-view-btn active" onclick="pdvMudarView('venda')">
-              <i class="fas fa-cash-register"></i> <span>Venda</span>
-            </button>
-            <button id="pdv-view-btn-mesas" class="pdv-view-btn" onclick="pdvMudarView('mesas')">
-              <i class="fas fa-clipboard-list"></i> <span>Mesas</span>
-              <span class="pdv-badge-mesas" id="pdv-badge-mesas" style="display:none">0</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- MOBILE TABS (só aparece em mobile) -->
-        <div class="pdv-tabs" id="pdv-tabs" style="display:none">
-          <button class="pdv-tab-btn active" onclick="pdvMudarAba('produtos',this)">🍣 Cardápio</button>
-          <button class="pdv-tab-btn" onclick="pdvMudarAba('carrinho',this)">🛒 Pedido</button>
-          <button class="pdv-tab-btn" onclick="pdvMudarAba('monitor',this)">📋 Mesas</button>
-        </div>
-
-        <!-- VIEW: VENDA -->
-        <div id="pdv-panel-venda" class="pdv-view-panel">
-          <div class="pdv-container">
-
-            <!-- COLUNA ESQUERDA: Produtos -->
-            <div class="pdv-produtos pdv-tab-active">
-              <!-- Barra de categorias + busca -->
-              <div class="pdv-cat-filterbar">
-                <div class="pdv-cat-chips" id="pdv-cat-filter">
-                  <!-- chips gerados por JS -->
-                </div>
-                <input type="text" id="pdv-busca" class="pdv-busca-input" placeholder="🔍 Buscar produto..." oninput="filtrarPDV(this.value)" />
-              </div>
-              <!-- Mesas ativas (chips) -->
-              <div class="pdv-mesas-bar" id="pdv-mesas-bar">
-                <span class="pdv-mesas-label"><i class="fas fa-chair"></i> Mesas:</span>
-                <span class="mesa-monitor-vazio" id="pdv-mesas-vazio">Nenhuma mesa ativa</span>
-              </div>
-              <!-- Grid de produtos -->
-              <div id="pdv-grid"></div>
-            </div>
-
-            <!-- COLUNA DIREITA: Carrinho -->
-            <div class="pdv-carrinho pdv-tab-active">
-              <h4 class="pdv-carrinho-titulo">🛒 Novo Pedido</h4>
-
-              <!-- Tipo de atendimento PDV -->
-              <div style="display:flex;gap:6px;margin-bottom:10px">
-                <button type="button" class="pdv-tipo-btn pdv-tipo-ativo" id="pdv-tipo-local"
-                  onclick="pdvSelecionarTipo('local')" title="Comer no Local">
-                  🍽️ Local
-                </button>
-                <button type="button" class="pdv-tipo-btn" id="pdv-tipo-levar"
-                  onclick="pdvSelecionarTipo('levar')" title="Levar pra Casa">
-                  🥡 Levar
-                </button>
-                <button type="button" class="pdv-tipo-btn" id="pdv-tipo-delivery"
-                  onclick="pdvSelecionarTipo('delivery')" title="Enviar por Delivery">
-                  🛵 Delivery
-                </button>
-              </div>
-
-              <div class="pdv-form-row">
-                <div class="pdv-mesa-col" id="pdv-mesa-col">
-                  <label class="pdv-label" id="pdv-mesa-label">Mesa <span class="obrig">*</span></label>
-                  <input type="number" id="balcao-mesa" class="form-control" placeholder="Nº" min="1" />
-                </div>
-                <div class="pdv-cliente-col">
-                  <label class="pdv-label">Cliente</label>
-                  <input type="text" id="balcao-cliente" class="form-control" placeholder="Nome" />
-                </div>
-              </div>
-              <div class="pdv-tel-row">
-                <label class="pdv-label">Telefone</label>
-                <input type="tel" id="balcao-telefone" class="form-control" placeholder="Ex: 0981234567" />
-              </div>
-              <!-- Endereço/link — só aparece no modo Delivery -->
-              <div id="pdv-delivery-row" style="display:none;margin-bottom:8px">
-                <label class="pdv-label">📍 Endereço / Link de localização</label>
-                <input type="text" id="balcao-endereco" class="form-control"
-                  placeholder="Cole o endereço ou link do Google Maps" />
-                <label class="pdv-label" style="margin-top:8px">🛵 Valor do Delivery (Gs)</label>
-                <input type="number" id="balcao-frete" class="form-control"
-                  placeholder="Ex: 8000" min="0" step="1000"
-                  style="border:2px solid #27ae60;"
-                  oninput="atualizarCarrinhoPDV()" />
-              </div>
-
-              <div class="pdv-lista-itens" id="pdv-lista"></div>
-
-              <div class="pdv-total-box">
-                <div class="pdv-total-row">
-                  <span>Total:</span>
-                  <span>Gs <span id="balcao-total">0</span></span>
-                </div>
-                <select id="balcao-pag" class="form-control pdv-select-pag"
-                  onchange="atualizarInfoPagPDV(parseInt(document.getElementById('balcao-total').innerText.replace(/\D/g,'')))">
-                  <option value="Efetivo">Efetivo</option>
-                  <option value="Cartao">Cartão</option>
-                  <option value="Pix">Pix</option>
-                  <option value="Transferencia">Transferência</option>
-                  <option value="Multipagamento">🔀 Dividir Pagamento</option>
-                </select>
-                <div id="balcao-pag-info" style="display:none; background:#e8f5e9; border:1px solid #4caf50; border-radius:6px; padding:8px 12px; font-size:0.9rem; color:#1b5e20; margin-bottom:8px"></div>
-
-                <!-- Painel Multipagamento PDV -->
-                <div id="box-multi-pdv" style="display:none; margin-top:8px">
-                  <button type="button" onclick="voltarPagamentoPDVUnico()"
-                    style="width:100%;padding:9px;background:#eef4ff;color:#2980b9;border:1.5px solid #2980b9;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.82rem;margin-bottom:8px;">
-                    🔁 Usar pagamento único
-                  </button>
-                  <p style="text-align:center;color:#888;font-size:0.75rem;margin:0 0 8px 0">≡ Divida o total entre as formas</p>
-                  <div id="multi-partes-pdv"></div>
-                  <button type="button" onclick="adicionarPartePagamentoPDV()"
-                    style="width:100%;padding:8px;background:#f8f9fa;color:#555;border:1.5px dashed #ccc;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.8rem;margin-top:4px;">
-                    + Adicionar forma
-                  </button>
-                  <div id="multi-status-pdv" style="display:none;margin-top:8px;padding:9px 12px;border-radius:8px;background:#eafaf1;border:1.5px solid #27ae60">
-                    <span id="multi-restante-pdv" style="font-weight:700;font-size:0.88rem"></span>
-                  </div>
-                </div>
-                <button class="btn btn-success btn-lancar-cozinha" onclick="salvarPedidoBalcao()">
-                  🚀 LANÇAR NA COZINHA
-                </button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- VIEW: MESAS (monitor) -->
-        <div id="pdv-panel-mesas" class="pdv-view-panel" style="display:none">
-          <div class="pdv-monitor pdv-tab-active" style="height:calc(100vh - 200px); overflow-y:auto">
-            <h4 class="pdv-monitor-titulo"><i class="fas fa-utensils"></i> Pedidos em Andamento</h4>
-            <div id="lista-mesas-andamento">
-              <p style="text-align: center; font-size: 0.8rem; color: #aaa; margin-top: 20px">Nenhum pedido ativo.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- MOBILE: barra inferior fixa com total + botão -->
-        <div class="pdv-mobile-footer" id="pdv-mobile-footer" style="display:none">
-          <div class="pdv-mobile-total">
-            <span id="pdv-mobile-qtd">0 itens</span>
-            <span class="pdv-mobile-valor">Gs <strong id="pdv-mobile-total-val">0</strong></span>
-          </div>
-          <button class="pdv-mobile-checkout-btn" onclick="pdvMudarAba('carrinho', document.querySelector('.pdv-tab-btn:nth-child(2)'))">
-            <i class="fas fa-shopping-cart"></i> VER PEDIDO
-          </button>
-        </div>
-      </div>
-
-      <div id="financeiro" class="tab-content">
-  <h2 class="section-title">💰 Controle Financeiro</h2>
-
-  <!-- ===== FILTROS ===== -->
-  <div class="filtro-bar">
-    <div class="filtro-group">
-      <label><i class="far fa-calendar-alt"></i> Início</label>
-      <input type="date" id="fin-inicio" />
-    </div>
-
-    <div class="filtro-group">
-      <label><i class="far fa-calendar-alt"></i> Fim</label>
-      <input type="date" id="fin-fim" />
-    </div>
-
-    <div class="filtro-group">
-      <label><i class="fas fa-wallet"></i> Pagamento</label>
-      <select id="fin-tipo">
-        <option value="todos">Todos</option>
-        <option value="Efetivo">Dinheiro</option>
-        <option value="Cartao">Cartão</option>
-        <option value="Pix">Pix</option>
-        <option value="Transferencia">Transferência</option>
-      </select>
-    </div>
-
-    <!-- NOVO FILTRO -->
-    <div class="filtro-group">
-      <label><i class="fas fa-receipt"></i> Factura</label>
-      <select id="fin-factura">
-        <option value="todos">Todos</option>
-        <option value="com_factura">Com Factura</option>
-        <option value="sem_factura">Sem Factura</option>
-      </select>
-    </div>
-
-    <button class="btn-filtrar" onclick="calcularFinanceiro()">
-      <i class="fas fa-filter"></i> Filtrar
-    </button>
-
-    <!-- NOVO BOTÃO EXPORTAR -->
-    <button class="btn btn-success" onclick="exportarFinanceiro()" style="height: 45px;">
-      <i class="fas fa-file-excel"></i> Excel
-    </button>
-    <button class="btn btn-primary" onclick="abrirGraficos()" style="height:45px; background:#8e44ad; border-color:#8e44ad">
-      <i class="fas fa-chart-bar"></i> Gráficos
-    </button>
+<body>
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.3s;">
+    <div style="width: 60px; height: 60px; border: 4px solid #f3f3f3; border-top: 4px solid #1a7a2e; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+    <p style="margin-top: 20px; color: #666; font-weight: 500;">Carregando menu...</p>
   </div>
-
-  <!-- ===== CONTROLE DE CAIXA ===== -->
-  <div class="card" style="margin-bottom: 20px; padding: 20px; border: none; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);">
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px">
-      <div style="width: 4px; height: 20px; background: var(--primary); border-radius: 2px"></div>
-      <h3 style="margin: 0; color: #444">Controle de Caixa</h3>
-    </div>
-
-    <div class="actions-grid">
-      <button class="action-card ac-abrir" onclick="abrirModalCaixa('abertura')">
-        <i class="fas fa-door-open"></i>
-        <span>Abrir Caixa</span>
-      </button>
-
-      <button class="action-card ac-suprir" onclick="abrirModalCaixa('suprimento')">
-        <i class="fas fa-plus-circle"></i>
-        <span>Suprimento</span>
-      </button>
-
-      <button class="action-card ac-sangria" onclick="abrirModalCaixa('sangria')">
-        <i class="fas fa-hand-holding-usd"></i>
-        <span>Sangria</span>
-      </button>
-
-      <button class="action-card ac-despesa" onclick="abrirModalCaixa('despesa')">
-        <i class="fas fa-file-invoice-dollar"></i>
-        <span>Despesa</span>
-      </button>
-
-      <button class="action-card ac-fechar" onclick="fecharCaixaResumo()">
-        <i class="fas fa-calculator"></i>
-        <span>Fechar Dia</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- ===== KPIs PRINCIPAIS ===== -->
-  <div class="kpi-grid">
-    <div class="kpi-card">
-      <h3>Faturamento</h3>
-      <div class="value" id="card-faturamento">Gs 0</div>
-    </div>
-    <div class="kpi-card">
-      <h3>Custo Entregas</h3>
-      <div class="value" id="card-custo-moto">Gs 0</div>
-    </div>
-    <div class="kpi-card">
-      <h3>Lucro Operacional</h3>
-      <div class="value" id="card-lucro" style="color: green">Gs 0</div>
-    </div>
+  <style>
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+    <header class="app-header sticky">
+        <div class="header-content">
+            <div class="logo-area">
+                <img src="https://media.bio.site/sites/79CC2018-24E6-48C4-A856-4C1E36908B60/AWwTtFWnmuqVysXARE2MRX.png" alt="Logo">
+                <div class="store-details">
+                    <h1>Cantinho Brasileiro</h1>
+                    <span class="badge-status open" data-lang-key="header-aberto">Abierto</span>
+                </div>
+            </div>
+            <div class="language-selector" style="position:absolute; top:15px; right:15px; z-index:1000;">
+    <button id="btn-idioma" onclick="toggleLanguageMenu()" style="background:rgba(255,255,255,0.95); border:2px solid var(--primary); padding:8px 15px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:8px; font-weight:600; color:#333; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <span id="current-lang-flag">🇵🇾</span>
+        <span id="current-lang-code" style="font-size:0.9rem;">ES</span>
+        <i class="fas fa-chevron-down" style="font-size:0.7rem;"></i>
+    </button>
     
-    <!-- NOVOS CARDS -->
-    <div class="kpi-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-      <h3 style="color: rgba(255,255,255,0.9);">Total Pedidos</h3>
-      <div class="value" id="card-qtd-pedidos" style="color: white;">0</div>
-    </div>
-    <div class="kpi-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
-      <h3 style="color: rgba(255,255,255,0.9);">Ticket Médio</h3>
-      <div class="value" id="card-ticket-medio" style="color: white;">Gs 0</div>
-    </div>
-  </div>
-
-  <!-- ===== FORMAS DE PAGAMENTO ===== -->
-  <div class="card" style="margin-top: 20px; padding: 20px;">
-    <h3 style="margin-bottom: 15px; color: #555;">💳 Por Forma de Pagamento</h3>
-    <div class="kpi-grid" style="margin: 0;">
-      <div class="kpi-card" style="background: #fff3cd; border-left: 4px solid #ffc107;">
-        <h4 style="color: #856404;">Dinheiro</h4>
-        <div class="value" id="total-efetivo" style="color: #856404;">Gs 0</div>
-      </div>
-      <div class="kpi-card" style="background: #d1ecf1; border-left: 4px solid #17a2b8;">
-        <h4 style="color: #0c5460;">Cartão</h4>
-        <div class="value" id="total-cartao" style="color: #0c5460;">Gs 0</div>
-      </div>
-      <div class="kpi-card" style="background: #d4edda; border-left: 4px solid #28a745;">
-        <h4 style="color: #155724;">Pix</h4>
-        <div class="value" id="total-pix" style="color: #155724;">Gs 0</div>
-      </div>
-      <div class="kpi-card" style="background: #e7e8ea; border-left: 4px solid #6c757d;">
-        <h4 style="color: #383d41;">Transferência</h4>
-        <div class="value" id="total-transf" style="color: #383d41;">Gs 0</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== TABELA MOTOBOYS ===== -->
-  <div class="card" style="margin-top: 20px">
-    <h3>🏍️ Relatório Motoboys</h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Nome</th>
-          <th>Qtd Entregas</th>
-          <th>Taxa Unitária</th>
-          <th>Total a Pagar</th>
-        </tr>
-      </thead>
-      <tbody id="lista-financeiro-motoboys"></tbody>
-    </table>
-  </div>
-</div>
-
-      <div id="equipe" class="tab-content">
-        <h2 class="section-title">Gestão de Equipe</h2>
-        <div class="card">
-          <div style="margin-bottom: 20px">
-            <h4 style="margin-bottom:12px">Cadastrar Usuário</h4>
-            <div class="equipe-form">
-              <input type="email" id="novo-user-email" placeholder="Email" class="form-control" />
-              <input type="text" id="novo-user-senha" placeholder="Senha (mín. 6)" class="form-control" />
-              <select id="novo-user-cargo" class="form-control">
-                <option value="funcionario">Funcionário</option>
-                <option value="gerente">Gerente</option>
-              </select>
-              <button class="btn btn-success" onclick="cadastrarUsuario()">
-                <i class="fas fa-user-plus"></i> Criar
-              </button>
+    <div id="language-menu" style="display:none; position:absolute; top:calc(100% + 8px); right:0; background:white; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.15); min-width:200px; overflow:hidden; z-index:1001;">
+        <button onclick="changeLanguage('es')" style="width:100%; text-align:left; padding:12px 15px; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:12px; transition:all 0.2s;">
+            <span style="font-size:1.5rem">🇵🇾</span>
+            <div style="flex:1">
+                <div style="font-weight:600; color:#333">Español</div>
+                <div style="font-size:0.75rem; color:#999">Paraguay</div>
             </div>
-          </div>
-          <div class="table-container">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Cargo</th>
-                  <th>Data</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="lista-equipe"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-<div id="produtos" class="tab-content">
-  
-  <div class="header-title" style="flex-direction: column; align-items: flex-start; gap: 15px;">
-    <h2>Gestão de Estoque e Equipe</h2>
-  </div>
-
-  <div id="lista-produtos-wrapper" class="subtab-content">
-      <div class="produtos-header">
-          <h3>Produtos</h3>
-          <div class="produtos-header-actions">
-            <input type="text" id="busca-produto" class="form-control" placeholder="🔍 Buscar produto..." oninput="filtrarProdutos(this.value)">
-            <button class="btn btn-primary" onclick="toggleNovosProdutosTipos()"><i class="fas fa-plus"></i> Novo Produto</button>
-          </div>
-      </div>
-
-      <!-- SELETOR DE TIPO — aparece ao clicar em "+ Novo Produto" -->
-      <div id="novo-produto-tipos" class="novo-produto-tipos" style="display:none">
-        <div class="novo-produto-tipos-titulo">Escolha o tipo de produto</div>
-        <div class="novo-produto-tipos-grid">
-          <button class="tipo-btn" onclick="criarNovoProduto('padrao')"><i class="fas fa-tag"></i><span>Simples</span><small>Produto sem opções</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('bebida')"><i class="fas fa-wine-bottle"></i><span>Bebida</span><small>Refri, água, suco</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('lanche')"><i class="fas fa-burger"></i><span>Lanche</span><small>Burger, hot dog</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('pizza')"><i class="fas fa-pizza-slice"></i><span>Pizza</span><small>Tamanhos & sabores</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('acai')"><i class="fas fa-leaf"></i><span>Açaí</span><small>Etapas de montagem</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('shake')"><i class="fas fa-blender"></i><span>Shake</span><small>Milk shake</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('suco')"><i class="fas fa-lemon"></i><span>Suco</span><small>Frutas & adicionais</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('sorvete')"><i class="fas fa-ice-cream"></i><span>Sorvete</span><small>Sabores, açaí</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('montavel')"><i class="fas fa-layer-group"></i><span>Montável</span><small>Poke, salada</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('combo')"><i class="fas fa-star"></i><span>Combo</span><small>Kit / promoção</small></button>
-          <button class="tipo-btn" onclick="criarNovoProduto('variacoes')" style="border-color:#8b5cf6"><i class="fas fa-palette" style="color:#8b5cf6"></i><span>Variações</span><small>Sabores c/ preço</small></button>
-        </div>
-      </div>
-
-      <div id="lista-produtos-grid" class="produtos-grid">
-        <!-- Cards gerados pelo JS -->
-      </div>
-  </div>
-
-  <div id="lista-categorias-wrapper" class="subtab-content subtab-hidden">
-      <div class="cat-section-header">
-        <div>
-          <h3 class="cat-section-title">🏷️ Categorias do Cardápio</h3>
-          <p class="cat-section-subtitle">Gerencie a organização e horários de exibição</p>
-        </div>
-        <button class="btn btn-primary cat-btn-nova" onclick="abrirModalCategoria()">
-          <i class="fas fa-plus"></i> Nova Categoria
         </button>
-      </div>
-
-      <!-- Grid de cards — preenchido pelo JS -->
-      <div id="lista-categorias" class="cat-grid"></div>
-
-      <!-- Painel de Subcategorias (abre ao clicar em "Sub" em algum card) -->
-      <div id="lista-subcategorias-wrapper" style="margin-top:24px; display:none;"></div>
-  </div>
-
-  <div id="lista-motos-wrapper" class="subtab-content subtab-hidden">
-      <div style="display: flex; justify-content: space-between; margin: 15px 0;">
-          <h3>Equipe Motoboys</h3>
-          <button class="btn btn-primary" onclick="abrirModalMoto()">Novo Motoboy</button>
-      </div>
-      <div class="table-container">
-          <table>
-              <thead><tr><th>Nome</th><th>Telefone</th><th>Ações</th></tr></thead>
-              <tbody id="lista-motos"></tbody>
-          </table>
-      </div>
-  </div>
-</div>
-
-      <!-- ===== ABA CONFIGURAÇÕES (COMPLETA) ===== -->
-      <div id="configuracoes" class="tab-content">
-        <h2 class="section-title">⚙️ Configurações</h2>
-
-        <div class="card cfg-card">
-          <div class="cfg-section-title"><i class="fas fa-store"></i> Loja &amp; Configurações Gerais</div>
-          <div class="cfg-grid">
-            <div class="form-group">
-              <label>Status Manual</label>
-              <select id="cfg-aberta" class="form-control">
-                <option value="true">🟢 Seguir horário semanal</option>
-                <option value="false">🔴 Forçar fechado</option>
-              </select>
+        
+        <button onclick="changeLanguage('pt')" style="width:100%; text-align:left; padding:12px 15px; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:12px; transition:all 0.2s;">
+            <span style="font-size:1.5rem">🇧🇷</span>
+            <div style="flex:1">
+                <div style="font-weight:600; color:#333">Português</div>
+                <div style="font-size:0.75rem; color:#999">Brasil</div>
             </div>
-            <div class="form-group">
-              <label>Cotação Real (Gs/R$)</label>
-              <input type="number" id="cfg-cotacao" class="form-control" placeholder="Ex: 1100">
+        </button>
+        
+        <button onclick="changeLanguage('en')" style="width:100%; text-align:left; padding:12px 15px; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:12px; transition:all 0.2s;">
+            <span style="font-size:1.5rem">🇺🇸</span>
+            <div style="flex:1">
+                <div style="font-weight:600; color:#333">English</div>
+                <div style="font-size:0.75rem; color:#999">United States</div>
             </div>
-          </div>
-
-          <!-- GRADE SEMANAL -->
-          <div style="margin-top:16px">
-            <div style="font-weight:700;font-size:0.95rem;color:#2c3e50;margin-bottom:10px">
-              📅 Horários por dia da semana
-              <small style="font-weight:400;color:#999;display:block;margin-top:2px">Cada dia pode ter até 2 turnos (ex: almoço + jantar). Deixe em branco para fechar o dia inteiro.</small>
+        </button>
+        
+        <button onclick="changeLanguage('de')" style="width:100%; text-align:left; padding:12px 15px; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:12px; transition:all 0.2s;">
+            <span style="font-size:1.5rem">🇩🇪</span>
+            <div style="flex:1">
+                <div style="font-weight:600; color:#333">Deutsch</div>
+                <div style="font-size:0.75rem; color:#999">Deutschland</div>
             </div>
-            <div id="grade-semanal" class="grade-semanal">
-              <!-- Gerado pelo JS -->
-            </div>
-          </div>
-
-          <button class="btn btn-primary" onclick="salvarConfiguracoes()" style="margin-top:16px">
-            <i class="fas fa-save"></i> Salvar Configurações
-          </button>
-        </div>
-
-        <div class="card cfg-card" style="margin-top:16px">
-          <div class="cfg-section-title"><i class="fas fa-tags"></i> Promoção do Dia (Banner)</div>
-          <p style="font-size:0.83rem;color:#888;margin-bottom:12px">
-            Ao clicar no banner, o cliente já abre o modal do produto para comprar.
-          </p>
-          <div class="form-group">
-            <label>ID do Produto Promocional</label>
-            <input type="text" id="cfg-banner-id" class="form-control" placeholder="Ex: 42">
-          </div>
-          <div class="form-group" style="margin-top:10px">
-            <label>Foto do Banner <span class="obrig">*</span></label>
-            <input type="file" id="cfg-banner-file" class="form-control" accept="image/*" onchange="previewBanner(this)">
-          </div>
-          <div id="cfg-banner-preview-box" style="display:none;margin:10px 0;text-align:center">
-            <img id="cfg-banner-preview" src="" style="max-height:130px;border-radius:8px;border:1px solid #ddd">
-          </div>
-          <input type="hidden" id="cfg-banner-img">
-          <button class="btn btn-success" onclick="salvarBanner()" style="margin-top:10px;width:100%">
-            <i class="fas fa-upload"></i> Enviar Foto &amp; Ativar Promoção
-          </button>
-        </div>
-
-        <!-- ===== ADICIONAIS GLOBAIS ===== -->
-        <div class="card cfg-card" style="margin-top:16px">
-          <div class="cfg-section-title"><i class="fas fa-plus-circle"></i> Adicionais Globais
-            <small style="font-weight:400;color:#888;font-size:0.82rem;display:block;margin-top:4px">
-              Estes adicionais aparecem na tela do cliente ao abrir um produto. Você pode escolher em <strong>quais categorias</strong> cada adicional aparece — ou deixar em branco para exibir em <strong>todos os produtos</strong>.
-            </small>
-          </div>
-          <div id="extras-globais-lista" style="margin-bottom:12px"></div>
-          <button class="btn btn-sm" style="background:#8e44ad;color:white" onclick="addExtraGlobal()">+ Adicionar Adicional Global</button>
-          <button class="btn btn-primary" onclick="salvarExtrasGlobais()" style="margin-top:12px;width:100%">
-            <i class="fas fa-save"></i> Salvar Adicionais Globais
-          </button>
-        </div>
-
-        <!-- DEPOIS DA SEÇÃO DE PERSONALIZAÇÃO VISUAL -->
-<div id="card-cupons-cfg" class="card cfg-card" style="margin-top:16px">
-    <div class="cfg-section-title">
-        <i class="fas fa-ticket-alt"></i> Gestão de Cupons de Desconto
-    </div>
-    
-    <button class="btn btn-primary" onclick="abrirModalCupom()" style="margin-bottom:15px">
-        <i class="fas fa-plus"></i> Novo Cupom
-    </button>
-    
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>Código</th>
-                    <th>Tipo</th>
-                    <th>Valor</th>
-                    <th>Mínimo</th>
-                    <th>Usos / Limite</th>
-                    <th>Validade</th>
-                    <th>Status</th>
-                    <th>Ações</th>
-                </tr>
-            </thead>
-            <tbody id="lista-cupons">
-                <!-- Preenchido via JS -->
-            </tbody>
-        </table>
+        </button>
     </div>
 </div>
 
-<!-- MODAL DE CUPOM -->
-<div class="modal-overlay" id="modal-cupom">
-    <div class="modal-card-modern">
-        <div class="modal-header-modern">
-            <h3><i class="fas fa-ticket-alt"></i> Gerenciar Cupom</h3>
-            <button class="close-btn-modern" onclick="fecharModal('modal-cupom')">×</button>
+<!-- CSS para o seletor de idioma -->
+<style>
+#language-menu button:hover {
+    background: #f8f9fa !important;
+}
+
+@media (max-width: 768px) {
+    .language-selector {
+        top: 10px;
+        right: 10px;
+    }
+    #btn-idioma {
+        padding: 6px 10px !important;
+        font-size: 0.9rem;
+    }
+}
+</style>
+
+<!-- CSS para o botão de idioma -->
+<style>
+.lang-option:hover {
+    background: #f8f9fa !important;
+}
+
+.lang-option:active {
+    transform: scale(0.98);
+}
+
+.btn-language:hover {
+    background: white !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+@media (max-width: 768px) {
+    .language-selector {
+        top: 10px;
+        right: 10px;
+    }
+    
+    .btn-language {
+        padding: 6px 10px !important;
+        font-size: 0.9rem;
+    }
+}
+</style>
+
+<!-- JavaScript para o botão de idioma -->
+<script>
+const _langData = {
+    es: { flag: '🇵🇾', code: 'ES' },
+    pt: { flag: '🇧🇷', code: 'PT' },
+    en: { flag: '🇺🇸', code: 'EN' },
+    de: { flag: '🇩🇪', code: 'DE' }
+};
+
+function toggleLanguageMenu() {
+    const menu = document.getElementById('language-menu');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+// Mapeamento de traduções dos textos visíveis da interface
+const _traducoes = {
+    es: {
+        'header-aberto':     'Abierto',
+        'header-fechado':    'Cerrado',
+        'track-title':       '🚚 Rastrear Pedido',
+        'track-placeholder': 'Número del pedido',
+        'track-btn':         'Buscar',
+        'track-outro':       'Rastrear Otro Pedido',
+        'cart-title':        'Mi Pedido',
+        'cart-empty':        'Tu carrito está vacío',
+        'cart-empty-sub':    'Agrega items del menú',
+        'btn-delivery':      '🛵 Delivery',
+        'btn-retirada':      '🏃 Retiro',
+        'btn-local':         '🍽️ Comer aquí',
+        'btn-balcao':        '🏪 Balcón',
+        'checkout-title':    'Finalizar Pedido',
+        'label-nome':        'Nombre Completo *',
+        'label-zap':         'WhatsApp *',
+        'label-end':         'Dirección de Entrega *',
+        'label-ref':         'Punto de Referencia',
+        'label-pag':         'Forma de Pago *',
+        'btn-finalizar':     '✅ Confirmar Pedido',
+        'label-cupom':       'Cupón de Descuento',
+        'btn-limpar':        'Limpiar',
+        'modal-obs':         '¿Alguna observación?',
+        'modal-obs-ph':      'Ej: Sin cebolla, Capricha en el relleno...',
+        'modal-add':         'Agregar',
+        'ultimo-pedido':     'Último Pedido',
+        'ultimo-pedido-sub': '¿Te gustó? ¡Pide de nuevo!',
+        'btn-repetir':       'Agregar Todo al Carrito',
+        'btn-calcular':      '📍 Calcular Envío (Obligatorio)',
+        'frete-msg':         'Calculando...',
+        'gps-erro-titulo':   '¿GPS no funcionó?',
+        'gps-erro-texto':    '¡Sin problemas! Marca la opción abajo para combinar el valor de la entrega por WhatsApp.',
+        'gps-erro-check':    'Enviaré mi ubicación por WhatsApp',
+        'forma-pag':         'Seleccione la forma de pago...',
+        'pag-dinheiro':      'Efectivo (Guaraníes)',
+        'pag-cartao':        'Tarjeta de Crédito/Débito',
+        'pag-pix':           'Pix (BR)',
+        'pag-transfer':      'Transferencia / Alias (PY)',
+        'label-troco':       '¿Cuánto vuelto necesitas?',
+        'label-factura':     'Necesito Factura',
+        'label-ruc':         'RUC o CI',
+        'label-razao':       'Razón Social',
+        'subtotal':          'Subtotal',
+        'delivery':          'Envío',
+        'desconto':          'Descuento',
+        'total':             'Total',
+        'turbine':           'Bebidas & Extras',
+        'como-receber':      '¿Cómo desea recibir?',
+        'entrega':           'Entrega',
+        'retiro':            'Retiro',
+        'seus-dados':        'Sus Datos',
+        'pagamento':         'Pago'
+    },
+    pt: {
+        'header-aberto':     'Aberto',
+        'header-fechado':    'Fechado',
+        'track-title':       '🚚 Rastrear Pedido',
+        'track-placeholder': 'Número do pedido',
+        'track-btn':         'Buscar',
+        'track-outro':       'Rastrear Outro Pedido',
+        'cart-title':        'Meu Pedido',
+        'cart-empty':        'Seu carrinho está vazio',
+        'cart-empty-sub':    'Adicione itens do menu',
+        'btn-delivery':      '🛵 Delivery',
+        'btn-retirada':      '🏃 Retirada',
+        'btn-local':         '🍽️ Comer no Local',
+        'btn-balcao':        '🏪 Balcão',
+        'checkout-title':    'Finalizar Pedido',
+        'label-nome':        'Nome Completo *',
+        'label-zap':         'WhatsApp *',
+        'label-end':         'Endereço de Entrega *',
+        'label-ref':         'Ponto de Referência',
+        'label-pag':         'Forma de Pagamento *',
+        'btn-finalizar':     '✅ Confirmar Pedido',
+        'label-cupom':       'Cupom de Desconto',
+        'btn-limpar':        'Limpar',
+        'modal-obs':         'Alguma observação?',
+        'modal-obs-ph':      'Ex: Sem cebola, Capricha no molho...',
+        'modal-add':         'Adicionar',
+        'ultimo-pedido':     'Último Pedido',
+        'ultimo-pedido-sub': 'Gostou? Peça de novo!',
+        'btn-repetir':       'Adicionar Tudo ao Carrinho',
+        'btn-calcular':      '📍 Calcular Frete (Obrigatório)',
+        'frete-msg':         'Calculando...',
+        'gps-erro-titulo':   'GPS não funcionou?',
+        'gps-erro-texto':    'Sem problemas! Marque a opção abaixo para combinar o valor da entrega pelo WhatsApp.',
+        'gps-erro-check':    'Vou enviar minha localização pelo WhatsApp',
+        'forma-pag':         'Selecione a forma de pagamento...',
+        'pag-dinheiro':      'Dinheiro (Guaranis)',
+        'pag-cartao':        'Cartão de Crédito/Débito',
+        'pag-pix':           'Pix (BR)',
+        'pag-transfer':      'Transferência / Alias (PY)',
+        'label-troco':       'Troco para quanto?',
+        'label-factura':     'Preciso de Nota Fiscal',
+        'label-ruc':         'RUC ou CI',
+        'label-razao':       'Razão Social',
+        'subtotal':          'Subtotal',
+        'delivery':          'Entrega',
+        'desconto':          'Desconto',
+        'total':             'Total',
+        'turbine':           'Bebidas & Extras',
+        'como-receber':      'Como deseja receber?',
+        'entrega':           'Entrega',
+        'retiro':            'Retirada',
+        'seus-dados':        'Seus Dados',
+        'pagamento':         'Pagamento'
+    },
+    en: {
+        'header-aberto':     'Open',
+        'header-fechado':    'Closed',
+        'track-title':       '🚚 Track Order',
+        'track-placeholder': 'Order number',
+        'track-btn':         'Search',
+        'track-outro':       'Track Another Order',
+        'cart-title':        'My Order',
+        'cart-empty':        'Your cart is empty',
+        'cart-empty-sub':    'Add items from the menu',
+        'btn-delivery':      '🛵 Delivery',
+        'btn-retirada':      '🏃 Pickup',
+        'btn-local':         '🍽️ Dine In',
+        'btn-balcao':        '🏪 Counter',
+        'checkout-title':    'Checkout',
+        'label-nome':        'Full Name *',
+        'label-zap':         'WhatsApp *',
+        'label-end':         'Delivery Address *',
+        'label-ref':         'Reference Point',
+        'label-pag':         'Payment Method *',
+        'btn-finalizar':     '✅ Place Order',
+        'label-cupom':       'Discount Coupon',
+        'btn-limpar':        'Clear',
+        'modal-obs':         'Any observations?',
+        'modal-obs-ph':      'Ex: No onions, Extra sauce...',
+        'modal-add':         'Add',
+        'ultimo-pedido':     'Last Order',
+        'ultimo-pedido-sub': 'Liked it? Order again!',
+        'btn-repetir':       'Add Everything to Cart',
+        'btn-calcular':      '📍 Calculate Delivery (Required)',
+        'frete-msg':         'Calculating...',
+        'gps-erro-titulo':   'GPS did not work?',
+        'gps-erro-texto':    'No problem! Check the option below to arrange delivery fee via WhatsApp.',
+        'gps-erro-check':    'I will send my location via WhatsApp',
+        'forma-pag':         'Select payment method...',
+        'pag-dinheiro':      'Cash (Guaranies)',
+        'pag-cartao':        'Credit/Debit Card',
+        'pag-pix':           'Pix (BR)',
+        'pag-transfer':      'Transfer / Alias (PY)',
+        'label-troco':       'Change for how much?',
+        'label-factura':     'I need an Invoice',
+        'label-ruc':         'RUC or ID',
+        'label-razao':       'Business Name',
+        'subtotal':          'Subtotal',
+        'delivery':          'Delivery',
+        'desconto':          'Discount',
+        'total':             'Total',
+        'turbine':           'Drinks & Extras',
+        'como-receber':      'How would you like to receive?',
+        'entrega':           'Delivery',
+        'retiro':            'Pickup',
+        'seus-dados':        'Your Information',
+        'pagamento':         'Payment'
+    },
+    de: {
+        'header-aberto':     'Geöffnet',
+        'header-fechado':    'Geschlossen',
+        'track-title':       '🚚 Bestellung verfolgen',
+        'track-placeholder': 'Bestellnummer',
+        'track-btn':         'Suchen',
+        'track-outro':       'Andere Bestellung verfolgen',
+        'cart-title':        'Meine Bestellung',
+        'cart-empty':        'Ihr Warenkorb ist leer',
+        'cart-empty-sub':    'Fügen Sie Artikel aus dem Menü hinzu',
+        'btn-delivery':      '🛵 Lieferung',
+        'btn-retirada':      '🏃 Abholung',
+        'btn-local':         '🍽️ Vor Ort essen',
+        'btn-balcao':        '🏪 Theke',
+        'checkout-title':    'Bestellung abschließen',
+        'label-nome':        'Vollständiger Name *',
+        'label-zap':         'WhatsApp *',
+        'label-end':         'Lieferadresse *',
+        'label-ref':         'Referenzpunkt',
+        'label-pag':         'Zahlungsmethode *',
+        'btn-finalizar':     '✅ Bestellen',
+        'label-cupom':       'Rabattcoupon',
+        'btn-limpar':        'Löschen',
+        'modal-obs':         'Anmerkungen?',
+        'modal-obs-ph':      'Z.B.: Ohne Frühlingszwiebeln, Extra Sauce...',
+        'modal-add':         'Hinzufügen',
+        'ultimo-pedido':     'Letzte Bestellung',
+        'ultimo-pedido-sub': 'Hat es Ihnen gefallen? Bestellen Sie erneut!',
+        'btn-repetir':       'Alles in den Warenkorb legen',
+        'btn-calcular':      '📍 Lieferung berechnen (Erforderlich)',
+        'frete-msg':         'Berechnung...',
+        'gps-erro-titulo':   'GPS hat nicht funktioniert?',
+        'gps-erro-texto':    'Kein Problem! Aktivieren Sie die Option unten, um die Liefergebühr per WhatsApp zu vereinbaren.',
+        'gps-erro-check':    'Ich sende meinen Standort per WhatsApp',
+        'forma-pag':         'Zahlungsmethode wählen...',
+        'pag-dinheiro':      'Bargeld (Guaranies)',
+        'pag-cartao':        'Kredit-/Debitkarte',
+        'pag-pix':           'Pix (BR)',
+        'pag-transfer':      'Überweisung / Alias (PY)',
+        'label-troco':       'Wechselgeld für wie viel?',
+        'label-factura':     'Ich brauche eine Rechnung',
+        'label-ruc':         'RUC oder ID',
+        'label-razao':       'Firmenname',
+        'subtotal':          'Zwischensumme',
+        'delivery':          'Lieferung',
+        'desconto':          'Rabatt',
+        'total':             'Gesamt',
+        'turbine':           'Getränke & Extras',
+        'como-receber':      'Wie möchten Sie erhalten?',
+        'entrega':           'Lieferung',
+        'retiro':            'Abholung',
+        'seus-dados':        'Ihre Daten',
+        'pagamento':         'Zahlung'
+    }
+};
+
+function _aplicarIdioma(lang) {
+    const t = _traducoes[lang] || _traducoes['es'];
+    
+    // Aplicar por data-lang-key (elementos com esse atributo são traduzidos automaticamente)
+    document.querySelectorAll('[data-lang-key]').forEach(el => {
+        const key = el.getAttribute('data-lang-key');
+        if (t[key]) el.textContent = t[key];
+    });
+
+    // Elementos com data-lang-key-placeholder
+    document.querySelectorAll('[data-lang-key-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-lang-key-placeholder');
+        if (t[key]) el.placeholder = t[key];
+    });
+}
+
+function changeLanguage(lang) {
+    localStorage.setItem('language', lang);
+    const data = _langData[lang] || _langData['es'];
+    const flagEl = document.getElementById('current-lang-flag');
+    const codeEl = document.getElementById('current-lang-code');
+    if (flagEl) flagEl.textContent = data.flag;
+    if (codeEl) codeEl.textContent = data.code;
+    const menu = document.getElementById('language-menu');
+    if (menu) menu.style.display = 'none';
+
+    // 1. Aplica sistema data-i18n do translations.js (se disponível)
+    if (typeof setLanguage === 'function') setLanguage(lang);
+    // 2. Aplica traduções diretas dos elementos sem data-i18n
+    _aplicarIdioma(lang);
+    
+    // 3. Atualizar textos dinâmicos do app.js se necessário
+    atualizarTextosDinamicos(lang);
+}
+
+// Atualiza textos que são inseridos dinamicamente pelo JavaScript
+function atualizarTextosDinamicos(lang) {
+    const t = _traducoes[lang] || _traducoes['es'];
+    
+    // Atualizar botão flutuante do carrinho
+    const cartText = document.querySelector('.cart-text');
+    if (cartText) cartText.textContent = t['track-title'] ? t['track-title'].replace('🚚 ', '') : 'Ver mi pedido';
+    
+    // Atualizar placeholders de formulários
+    const nomeInput = document.getElementById('cli-nome');
+    if (nomeInput && !nomeInput.value) nomeInput.placeholder = 'Ej: Juan Pérez';
+    
+    const refInput = document.getElementById('cli-ref');
+    if (refInput) refInput.placeholder = t['label-ref'] ? t['label-ref'].replace('Punto de Referencia', 'Ej: Casa azul, portón negro') : 'Punto de Referencia';
+}
+
+// Fecha menu ao clicar fora
+document.addEventListener('click', (e) => {
+    const selector = document.querySelector('.language-selector');
+    const menu = document.getElementById('language-menu');
+    if (selector && menu && !selector.contains(e.target)) {
+        menu.style.display = 'none';
+    }
+});
+
+// Define idioma inicial ao carregar
+window.addEventListener('DOMContentLoaded', () => {
+    const savedLang = localStorage.getItem('language') || 'es';
+    const data = _langData[savedLang] || _langData['es'];
+    const flagEl = document.getElementById('current-lang-flag');
+    const codeEl = document.getElementById('current-lang-code');
+    if (flagEl) flagEl.textContent = data.flag;
+    if (codeEl) codeEl.textContent = data.code;
+    
+    // Aplica traduções imediatamente
+    _aplicarIdioma(savedLang);
+    
+    // Aguarda app.js carregar e aplica novamente
+    setTimeout(() => {
+        if (typeof setLanguage === 'function') setLanguage(savedLang);
+        _aplicarIdioma(savedLang);
+    }, 100);
+});
+</script>
+            <div class="header-info">
+                <p><i class="fas fa-star" style="color:#fc0;"></i> 4.8</p>
+                <p>30-45 min</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- DESKTOP LAYOUT WRAPPER: 2 colunas (menu esquerda + carrinho direita) -->
+    <div class="desktop-layout">
+    <div class="desktop-left">
+
+    <div class="banner-area">
+        <div class="banner-track">
+            <img src="https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=870&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" 
+                 onclick="clicarBanner(1)" 
+                 style="cursor:pointer">
+            
+            <img src="https://images.unsplash.com/photo-1534308983496-4fabb1a015ee?q=80&w=876&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" 
+                 onclick="clicarBanner(2)" 
+                 style="cursor:pointer">
+        </div>
+    </div>
+
+    <nav class="category-nav" id="category-nav"></nav>
+
+    <!-- ===== RASTREADOR DE PEDIDO (CARD FIXO) ===== -->
+    <div id="track-order-card" style="display: none; margin: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 16px; box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3); color: white;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;" data-lang-key="track-title">
+                <i class="fas fa-shipping-fast"></i> Rastrear Pedido
+            </h3>
+            <button onclick="fecharCardTracking()" style="background: rgba(255,255,255,0.2); border: none; width: 32px; height: 32px; border-radius: 50%; color: white; cursor: pointer; font-size: 1.2rem;">×</button>
         </div>
         
-        <div class="modal-body-modern">
-            <input type="hidden" id="cupom-id">
-            
-            <div class="form-group-modern">
-                <label><i class="fas fa-tag"></i> Código do Cupom</label>
-                <input type="text" id="cupom-codigo" class="input-modern" 
-                       placeholder="Ex: BEMVINDO10" style="text-transform:uppercase">
-            </div>
-            
-            <div class="form-group-modern">
-                <label><i class="fas fa-percentage"></i> Tipo de Desconto</label>
-                <select id="cupom-tipo" class="input-modern" onchange="alterarTipoCupom()">
-                    <option value="percentual">Desconto Percentual (%)</option>
-                    <option value="frete">Frete Grátis</option>
-                </select>
-            </div>
-            
-            <div class="form-group-modern" id="box-valor-cupom">
-                <label><i class="fas fa-percent"></i> Valor do Desconto (%)</label>
-                <input type="number" id="cupom-valor" class="input-modern" 
-                       placeholder="Ex: 10" min="0" max="100">
-            </div>
-            
-            <div class="form-group-modern">
-                <label><i class="fas fa-money-bill"></i> Valor Mínimo do Pedido (Gs)</label>
-                <input type="number" id="cupom-minimo" class="input-modern" 
-                       placeholder="Ex: 50000" min="0">
-            </div>
-            
-            <!-- Limitador de uso -->
-            <div class="form-group-modern">
-                <label><i class="fas fa-users"></i> Limite de Usos <small style="color:#888;font-weight:normal">(0 = ilimitado)</small></label>
-                <input type="number" id="cupom-limite" class="input-modern"
-                       placeholder="Ex: 20" min="0">
-            </div>
-
-            <!-- Validade -->
-            <div class="form-group-modern">
-                <label><i class="fas fa-calendar-alt"></i> Validade <small style="color:#888;font-weight:normal">(opcional)</small></label>
-                <input type="date" id="cupom-validade" class="input-modern">
-            </div>
-
-            <div class="checkbox-modern">
-                <input type="checkbox" id="cupom-ativo" checked>
-                <label for="cupom-ativo">
-                    <strong>Cupom Ativo</strong><br>
-                    <small>Desmarque para desativar temporariamente</small>
-                </label>
+        <!-- Formulário de busca -->
+        <div id="track-form" style="display: block;">
+            <p style="margin: 0 0 12px 0; font-size: 0.9rem; opacity: 0.9;">Ingrese el número de su pedido para seguirlo:</p>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <input type="number" id="track-pedido-input" data-lang-key-placeholder="track-placeholder" placeholder="Ej: 81" style="flex: 1; min-width: 80px; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600;">
+                <button onclick="buscarPedido()" style="padding: 12px 16px; background: white; color: #667eea; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;" data-lang-key="track-btn">
+                    <i class="fas fa-search"></i> Buscar
+                </button>
             </div>
         </div>
         
-        <div class="modal-footer-modern">
-            <button class="btn-modern btn-modern-cancel" onclick="fecharModal('modal-cupom')">
-                <i class="fas fa-times"></i> Cancelar
-            </button>
-            <button class="btn-modern btn-modern-primary" onclick="salvarCupom()">
-                <i class="fas fa-save"></i> Salvar Cupom
+        <!-- Resultado do tracking -->
+        <div id="track-result" style="display: none;">
+            <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 12px; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <span id="track-icon" style="font-size: 2rem;">📦</span>
+                    <div style="flex: 1;">
+                        <div style="font-size: 0.8rem; opacity: 0.8;">Pedido #<span id="track-numero">-</span></div>
+                        <div id="track-status-msg" style="font-weight: 700; font-size: 1.05rem;">Cargando...</div>
+                    </div>
+                </div>
+                
+                <!-- Barra de progresso -->
+                <div style="display: flex; gap: 4px; margin-top: 12px;">
+                    <div id="track-step-1" class="track-step">📥</div>
+                    <div id="track-step-2" class="track-step">🔥</div>
+                    <div id="track-step-3" class="track-step">🛵</div>
+                    <div id="track-step-4" class="track-step">✅</div>
+                </div>
+            </div>
+            
+            <!-- Info do motoboy (aparece quando sair para entrega) -->
+            <div id="track-motoboy-info" style="display: none; background: rgba(255,255,255,0.95); color: #333; padding: 12px; border-radius: 10px;">
+                <div style="font-weight: 700; font-size: 0.9rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-motorcycle" style="color: var(--primary);"></i>
+                    <span>Salió para Entrega</span>
+                </div>
+                <div style="font-size: 0.85rem; line-height: 1.6;">
+                    <strong>Motoboy:</strong> <span id="track-motoboy-nome">-</span><br>
+                    <strong>Contacto:</strong> <a id="track-motoboy-tel" href="#" style="color: var(--primary); text-decoration: none; font-weight: 600;">-</a>
+                </div>
+            </div>
+            
+            <button onclick="voltarBusca()" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 10px;" data-lang-key="track-outro">
+                Rastrear Otro Pedido
             </button>
         </div>
     </div>
-</div>
 
-        <div class="card cfg-card" style="margin-top:16px">
-          <div class="cfg-section-title"><i class="fas fa-palette"></i> Personalização Visual</div>
-          <div class="cfg-grid">
-            <div class="form-group">
-              <label>Nome da Loja</label>
-              <input type="text" id="cfg-nome-loja" class="form-control" placeholder="Ex: Cantinho Brasileiro">
-            </div>
-            <div class="form-group">
-              <label>Cor Principal (botões)</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input type="color" id="cfg-cor-primaria" value="#1a7a2e" style="width:50px;height:40px;border:none;cursor:pointer;border-radius:4px">
-                <input type="text" id="cfg-cor-primaria-hex" class="form-control" placeholder="#1a7a2e" style="flex:1">
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Ícone da Loja (upload)</label>
-              <input type="file" id="cfg-icone-file" class="form-control" accept="image/*" onchange="previewIcone(this)">
-            </div>
-            <div class="form-group" id="cfg-icone-preview-box" style="display:none">
-              <label>Preview</label>
-              <img id="cfg-icone-preview" src="" style="width:60px;height:60px;object-fit:cover;border-radius:50%;border:2px solid #ddd">
-            </div>
-          </div>
-          <button class="btn btn-primary" onclick="salvarPersonalizacao()" style="margin-top:12px">
-            <i class="fas fa-paint-brush"></i> Salvar Personalização
-          </button>
+    <div id="buy-again-container" style="display: none; margin: 20px 20px 0; background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #eee;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h3 style="margin:0; font-size:1rem; color:#333;" data-lang-key="ultimo-pedido"><i class="fas fa-history" style="color:var(--primary)"></i> Último Pedido</h3>
+            <span style="font-size:0.8rem; color:#888;" data-lang-key="ultimo-pedido-sub">¿Te gustó? ¡Pide de nuevo!</span>
         </div>
+        
+        <ul id="last-order-list" style="list-style:none; padding:0; margin:0 0 15px 0; font-size:0.9rem; color:#555; background:#f9f9f9; padding:10px; border-radius:8px;">
+            </ul>
 
-        <!-- ===== TABELA DE FRETE ===== -->
-        <div class="card cfg-card" style="margin-top:16px">
-          <div class="cfg-section-title">
-            <i class="fas fa-motorcycle"></i> Tabela de Frete por KM
-            <small style="font-weight:400;color:#888;font-size:0.82rem;display:block;margin-top:4px">
-              Defina o valor cobrado do <strong>cliente</strong> e o valor pago ao <strong>motoboy</strong> por faixa de distância.
-              Use <strong style="color:#e67e22">A combinar</strong> para faixas onde o preço é negociado direto com o cliente — aparecerá no app e na mensagem do WhatsApp.
-              Acima de 20km é sempre exibido "A combinar".
-            </small>
-          </div>
-
-          <div style="overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse;font-size:0.88rem">
-              <thead>
-                <tr style="background:#f4f6f8">
-                  <th style="padding:10px 8px;text-align:left;border-bottom:2px solid #e0e0e0;white-space:nowrap">Faixa (km)</th>
-                  <th style="padding:10px 8px;text-align:center;border-bottom:2px solid #e0e0e0;color:#2980b9">💰 Valor Loja (Gs)</th>
-                  <th style="padding:10px 8px;text-align:center;border-bottom:2px solid #e0e0e0;color:#27ae60">🛵 Valor Motoboy (Gs)</th>
-                </tr>
-              </thead>
-              <tbody id="tabela-frete-body">
-                <!-- Gerado pelo JS -->
-              </tbody>
-              <tfoot>
-                <tr style="background:#fff8e6">
-                  <td style="padding:10px 8px;font-weight:700;border-top:2px dashed #e0e0e0">Acima de 20 km</td>
-                  <td colspan="2" style="padding:10px 8px;text-align:center;color:#e67e22;font-weight:700;border-top:2px dashed #e0e0e0">
-                    🤝 A Combinar
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <div style="margin-top:18px; padding:14px; background:#f0fff4; border:1.5px solid #27ae60; border-radius:10px;">
-            <div style="font-weight:700; font-size:0.9rem; color:#155c24; margin-bottom:10px;">
-              ⛽ Ajuda de Custo de Combustível (por motoboy/dia)
-              <small style="font-weight:400; color:#555; display:block; margin-top:3px;">
-                Valor adicional pago ao motoboy 1x por dia, independente da quantidade de entregas.
-              </small>
-            </div>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span style="color:#555; font-size:0.88rem; white-space:nowrap;">Gs</span>
-              <input type="number" id="cfg-combustivel" class="form-control"
-                     placeholder="Ex: 20000" min="0" step="1000"
-                     style="max-width:180px; border:1.5px solid #27ae60; text-align:center;">
-            </div>
-          </div>
-
-          <button class="btn btn-primary" onclick="salvarTabelaFrete()" style="margin-top:16px;width:100%">
-            <i class="fas fa-save"></i> Salvar Tabela de Frete e Combustível
-          </button>
-        </div>
-
-      </div>
-
-    </div><!-- /main-content -->
-
-
-    <div id="modal-produto" class="modal-overlay">
-      <div class="modal-content modal-produto-content">
-        <div class="modal-produto-header">
-          <h3>Gerenciar Produto</h3>
-          <button class="btn-modal-fechar" onclick="fecharModal('modal-produto')" aria-label="Fechar">×</button>
-        </div>
-        <input type="hidden" id="prod-id" />
-
-        <!-- DADOS BÁSICOS -->
-        <div class="form-group">
-          <label>Nome</label>
-          <input type="text" id="prod-nome" class="form-control" />
-        </div>
-        <div class="form-group">
-          <label>Descrição</label>
-          <textarea id="prod-desc" class="form-control" rows="2"></textarea>
-        </div>
-        <div class="form-group" style="display: flex; gap: 10px">
-          <div style="flex: 1">
-            <label>Preço base (Gs) <small style="color:#888">— para Pizza, é o mínimo (tamanho P)</small></label>
-            <input type="number" id="prod-preco" class="form-control" />
-          </div>
-          <div style="flex: 1">
-            <label>Categoria</label>
-            <select id="prod-cat" class="form-control" onchange="onCatChange()"></select>
-          </div>
-        </div>
-        <div class="form-group" id="box-subcategoria" style="display:none">
-          <label>Subcategoria <small style="color:#888">(opcional)</small></label>
-          <select id="prod-subcat" class="form-control"></select>
-        </div>
-        <div class="form-group">
-          <label>Imagem (Upload ou URL)</label>
-          <input type="file" id="prod-img-file" class="form-control" onchange="previewUpload(this)" />
-          <input type="text" id="prod-img" class="form-control" placeholder="Ou cole a URL aqui" />
-          <div id="box-preview" style="display:none; margin-top:10px; text-align:center">
-            <img id="img-preview" src="" style="max-height:100px; border-radius:5px" />
-          </div>
-        </div>
-        <div class="form-group" style="display:flex; align-items:center; gap:10px; background:#fff8e1; padding:10px; border-radius:8px;">
-          <input type="checkbox" id="prod-somente-balcao" style="width:20px; height:20px;">
-          <label for="prod-somente-balcao" style="font-weight:bold; cursor:pointer;">
-            🏪 Somente Balcão (PDV)
-            <small style="display:block; font-weight:normal; color:#888;">Não aparece no cardápio online</small>
-          </label>
-        </div>
-
-        <hr class="modal-divisor"/>
-
-        <!-- TIPO DE PRODUTO — badge compacto (editável apenas ao editar produto existente) -->
-        <div id="modal-tipo-badge-wrapper" class="modal-tipo-badge-wrapper">
-          <span class="modal-tipo-label">Tipo:</span>
-          <div id="modal-tipo-badge" class="modal-tipo-badge">📦 Simples</div>
-          <button type="button" class="btn-alterar-tipo" id="btn-alterar-tipo" onclick="toggleAlterarTipo()">✏️ Alterar tipo</button>
-        </div>
-        <!-- Grid de tipos (visível ao clicar "Alterar tipo" no modo edição) -->
-        <div id="builder-type-grid-wrapper" style="display:none">
-          <div class="builder-type-grid" id="builder-type-grid">
-            <button type="button" class="builder-type-btn active" data-tipo="padrao" onclick="selecionarTipoBuilder('padrao')">
-              <i class="fas fa-tag"></i><strong>Simples</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="bebida" onclick="selecionarTipoBuilder('bebida')">
-              <i class="fas fa-wine-bottle"></i><strong>Bebida</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="lanche" onclick="selecionarTipoBuilder('lanche')">
-              <i class="fas fa-burger"></i><strong>Lanche</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="pizza" onclick="selecionarTipoBuilder('pizza')">
-              <i class="fas fa-pizza-slice"></i><strong>Pizza</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="acai" onclick="selecionarTipoBuilder('acai')">
-              <i class="fas fa-leaf"></i><strong>Açaí</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="shake" onclick="selecionarTipoBuilder('shake')">
-              <i class="fas fa-blender"></i><strong>Shake</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="suco" onclick="selecionarTipoBuilder('suco')">
-              <i class="fas fa-lemon"></i><strong>Suco</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="sorvete" onclick="selecionarTipoBuilder('sorvete')">
-              <i class="fas fa-ice-cream"></i><strong>Sorvete</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="montavel" onclick="selecionarTipoBuilder('montavel')">
-              <i class="fas fa-layer-group"></i><strong>Montável</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="combo" onclick="selecionarTipoBuilder('combo')">
-              <i class="fas fa-star"></i><strong>Combo</strong>
-            </button>
-            <button type="button" class="builder-type-btn" data-tipo="variacoes" onclick="selecionarTipoBuilder('variacoes')">
-              <i class="fas fa-palette"></i><strong>Variações</strong>
-            </button>
-          </div>
-        </div>
-        <div id="builder-tipo-hint" style="display:none"></div>
-        <div id="builder-lanche-hint" style="display:none;background:#e0f2fe;border-left:4px solid #0284c7;border-radius:6px;padding:10px 14px;font-size:0.82rem;color:#0c4a6e;margin-top:8px;">
-          🍔 Use a seção <strong>"Adicionais (Extras)"</strong> para ingredientes opcionais.
-        </div>
-        <input type="hidden" id="prod-tipo-builder" value="padrao">
-
-        <!-- ── BUILDER: VARIAÇÕES DE SABOR ── -->
-        <div id="builder-variacoes" class="builder-section" style="display:none">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <h4 style="color:#8b5cf6;margin:0">🎨 Variações de Sabor</h4>
-            <button class="btn btn-sm" style="background:#8b5cf6;color:#fff" onclick="addVariacao()">+ Adicionar Variação</button>
-          </div>
-          <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;font-size:0.81rem;color:#5b21b6;margin-bottom:12px">
-            🎯 Cada variação tem nome, preço próprio e foto opcional (herda a foto do produto por padrão).<br>
-            O menu mostrará <strong>"A partir de Gs X"</strong> com o menor preço.
-          </div>
-          <div id="variacoes-lista" style="display:flex;flex-direction:column;gap:10px"></div>
-        </div>
-
-        <!-- ── BUILDER: MONTÁVEL (Poke/Salada) ── -->
-        <div id="builder-montavel" class="builder-section" style="display:none">
-          <h4 style="color:#e67e22">🥗 Etapas de Montagem</h4>
-          <p style="font-size:0.82rem; color:#888; margin-bottom:10px">Configure as etapas que o cliente vai escolher (ingredientes, bases, molhos, etc.)</p>
-          <div id="builder-steps"></div>
-          <button class="btn btn-sm btn-info" onclick="addBuilderStep()">+ Adicionar Etapa</button>
-          <!-- mantém compatibilidade com toggleBuilder() -->
-          <input type="hidden" id="prod-montavel" value="false">
-        </div>
-
-        <!-- ── BUILDER: SHAKE ── -->
-        <div id="builder-shake" class="builder-section" style="display:none">
-          <h4 style="color:#2980b9;margin-bottom:4px">🥤 Configuração do Milk Shake</h4>
-          <p style="font-size:0.82rem;color:#888;margin-bottom:14px">Defina os tamanhos disponíveis e os sabores que o cliente pode escolher.</p>
-
-          <!-- Tamanhos -->
-          <div style="margin-bottom:18px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <h5 style="margin:0">📐 Tamanhos</h5>
-              <button class="btn btn-sm btn-success" onclick="addShakeTamanho()">+ Tamanho</button>
-            </div>
-            <div style="background:#e8f4fd;border-radius:8px;padding:8px 12px;font-size:0.78rem;color:#1a6eb5;margin-bottom:8px">
-              💡 Defina nome (ex: P / M / G), volume em ml e o preço de cada tamanho.
-            </div>
-            <div id="shake-tamanhos-lista" style="display:flex;flex-direction:column;gap:8px"></div>
-          </div>
-
-          <!-- Sabores -->
-          <div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <h5 style="margin:0">🍓 Sabores</h5>
-              <button class="btn btn-sm btn-success" onclick="addShakeSabor()">+ Sabor</button>
-            </div>
-            <div style="background:#e8f4fd;border-radius:8px;padding:8px 12px;font-size:0.78rem;color:#1a6eb5;margin-bottom:8px">
-              💡 Adicione todos os sabores disponíveis. Preço extra opcional (ex: sabor premium).
-            </div>
-            <div id="shake-sabores-lista" style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;border:1px solid #eee;border-radius:8px;padding:8px"></div>
-          </div>
-        </div>
-
-        <!-- ── BUILDER: PIZZA ── -->
-        <div id="builder-pizza" class="builder-section" style="display:none">
-          <h4 style="color:#e74c3c">🍕 Configuração da Pizza</h4>
-
-          <div class="pizza-config-grid">
-            <div class="form-group">
-              <label>Máx. de sabores por pizza</label>
-              <select id="pizza-max-sabores" class="form-control">
-                <option value="1">1 sabor</option>
-                <option value="2" selected>2 sabores</option>
-                <option value="3">3 sabores</option>
-                <option value="4">4 sabores</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Tipos de massa oferecidos</label>
-              <div style="display:flex; gap:12px; margin-top:6px; flex-wrap:wrap">
-                <label style="cursor:pointer"><input type="checkbox" id="pizza-tipo-salgada" checked> Salgada</label>
-                <label style="cursor:pointer"><input type="checkbox" id="pizza-tipo-doce"> Doce</label>
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Bordas recheadas?</label>
-              <div style="display:flex; gap:12px; margin-top:6px">
-                <label style="cursor:pointer"><input type="checkbox" id="pizza-tem-borda" onchange="toggleBordaPreco()"> Sim, oferecer bordas</label>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bordas Recheadas — lista com nome + preço -->
-          <div id="pizza-borda-preco-box" style="display:none; margin-top:14px">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-              <h5 style="margin:0">🧀 Bordas disponíveis</h5>
-              <button class="btn btn-sm btn-success" onclick="addPizzaBorda()">+ Borda</button>
-            </div>
-            <div style="background:#fff8e1; border-radius:8px; padding:8px 12px; font-size:0.78rem; color:#7d5a00; margin-bottom:8px">
-              💡 Adicione cada tipo de borda com seu preço. Ex: Cheddar → Gs 8.000 | Catupiry → Gs 9.000 | Chocolate → Gs 10.000
-            </div>
-            <div id="pizza-bordas-lista"></div>
-          </div>
-
-          <!-- Tamanhos -->
-          <div style="margin-top:16px">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-              <h5 style="margin:0">Tamanhos disponíveis</h5>
-              <button class="btn btn-sm btn-success" onclick="addPizzaTamanho()">+ Adicionar Tamanho</button>
-            </div>
-            <div style="background:#fff3f3; border-radius:8px; padding:10px; margin-bottom:8px; font-size:0.78rem; color:#888">
-              💡 Preencha: Nome, Fatias, Diâmetro (cm) e o preço por categoria (Tradicional, Especial, Doce) + o valor da borda para cada tamanho.
-            </div>
-            <div id="pizza-tamanhos-lista">
-              <!-- Tamanhos gerados pelo JS -->
-            </div>
-          </div>
-
-          <!-- Sabores cadastrados -->
-          <div style="margin-top:16px">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-              <h5 style="margin:0">Sabores cadastrados <small style="color:#888; font-weight:normal">(o cliente escolhe deste menu)</small></h5>
-              <button class="btn btn-sm btn-success" onclick="addPizzaSabor()">+ Sabor</button>
-            </div>
-            <div id="pizza-sabores-lista" style="max-height:220px; overflow-y:auto; border:1px solid #eee; border-radius:8px; padding:8px">
-              <p style="color:#aaa; font-size:0.82rem; text-align:center; margin:10px 0">Clique em "+ Sabor" para adicionar</p>
-            </div>
-          </div>
-        </div>
-
-        <hr class="modal-divisor"/>
-
-        <!-- ── EXTRAS (ADICIONAIS) — Para todos os tipos ── -->
-        <div class="form-group" style="background:#f0f9ff; border:1px solid #bee3f8; border-radius:10px; padding:12px">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
-            <label style="font-weight:700; margin:0">
-              ➕ Adicionais (Extras opcionais)
-              <small style="display:block; font-weight:normal; color:#888">O cliente poderá marcar estes itens ao pedir</small>
-            </label>
-            <div style="display:flex; align-items:center; gap:8px">
-              <input type="checkbox" id="prod-tem-extras" style="width:18px;height:18px" onchange="toggleExtras()">
-              <label for="prod-tem-extras" style="cursor:pointer; font-size:0.9rem">Ativar extras</label>
-            </div>
-          </div>
-          <div id="extras-area" style="display:none">
-            <div id="extras-lista"></div>
-            <button class="btn btn-sm btn-info" onclick="addExtra()" style="margin-top:8px">+ Adicionar Extra</button>
-          </div>
-        </div>
-
-        <!-- ===== OPÇÕES DE PREPARO ===== -->
-        <div class="form-group" style="border:1px solid #e0f0ff; border-radius:10px; padding:14px; background:#f7fbff;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label style="font-weight:700; margin:0">
-              🍳 Opções de Preparo
-              <small style="display:block; font-weight:normal; color:#888">Ex: "Salmão Cru / Flambado", "Batata Frita / Mandioca"</small>
-            </label>
-            <div style="display:flex; align-items:center; gap:8px">
-              <input type="checkbox" id="prod-tem-preparo" style="width:18px;height:18px" onchange="togglePreparo()">
-              <label for="prod-tem-preparo" style="cursor:pointer; font-size:0.9rem">Ativar preparo</label>
-            </div>
-          </div>
-          <div id="preparo-area" style="display:none">
-            <div id="preparo-lista"></div>
-            <button class="btn btn-sm" style="background:#2980b9;color:white;margin-top:8px" onclick="addOpcaoPreparo()">+ Adicionar Opção</button>
-          </div>
-        </div>
-
-        <div class="modal-actions" style="margin-top:16px">
-          <button class="btn btn-primary" onclick="salvarProduto()">Salvar Produto</button>
-          <button class="btn btn-secondary" onclick="fecharModal('modal-produto')">Cancelar</button>
-        </div>
-      </div>
+        <button onclick="repetirPedido()" style="width:100%; padding:12px; background:var(--primary); color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px;" data-lang-key="btn-repetir">
+            <i class="fas fa-redo"></i> Agregar Todo al Carrito
+        </button>
     </div>
 
-    <div id="modal-cat" class="modal-overlay">
-      <div class="modal-content" style="max-width: 420px">
-        <h3 id="titulo-modal-cat">Categoria</h3>
-        <input type="hidden" id="cat-modo-edicao" />
-        <div class="form-group">
-          <label>Nome Exibição</label>
-          <input type="text" id="cat-nome" class="form-control" oninput="autoSlugFromNome()" />
+    <main class="menu-container" id="menu-content"></main>
+
+    </div><!-- /desktop-left -->
+
+    <!-- CARRINHO SIDEBAR (visível só no desktop) -->
+    <div class="desktop-right" id="desktop-cart-sidebar">
+        <div class="desktop-cart-header">
+            <i class="fas fa-shopping-bag"></i> <span data-lang-key="cart-title">Mi Pedido</span>
         </div>
-        <div class="form-group">
-          <label>Slug (ID único, sem espaços) <small style="color:#e67e22" id="aviso-slug-edicao" style="display:none">⚠️ Alterar atualiza todos os produtos</small></label>
-          <input type="text" id="cat-slug" class="form-control" />
-        </div>
-        <div class="form-group">
-          <label>Ordem</label>
-          <input type="number" id="cat-ordem" class="form-control" />
-        </div>
-        <hr style="margin:12px 0; border-color:#eee">
-        <div style="background:#f0f8ff; border:1px solid #b3d9ff; border-radius:8px; padding:12px; margin-bottom:12px">
-          <div style="font-weight:600; font-size:0.9rem; color:#1a6eb5; margin-bottom:8px">
-            🕐 Horário de Exibição <small style="font-weight:400; color:#666">(opcional — deixe em branco para exibir sempre)</small>
-          </div>
-          <div style="display:flex; gap:12px; align-items:center; margin-bottom:10px">
-            <div style="flex:1">
-              <label style="font-size:0.82rem; color:#555">Das</label>
-              <input type="time" id="cat-hora-inicio" class="form-control" />
+        <div class="desktop-cart-body" id="desktop-cart-body">
+            <div class="desktop-cart-empty" id="desktop-cart-empty">
+                <i class="fas fa-utensils"></i>
+                <div data-lang-key="cart-empty">Tu carrito está vacío</div>
+                <small data-lang-key="cart-empty-sub">Agrega items del menú</small>
             </div>
-            <div style="flex:1">
-              <label style="font-size:0.82rem; color:#555">Até</label>
-              <input type="time" id="cat-hora-fim" class="form-control" />
+            <div id="desktop-cart-items"></div>
+        </div>
+        <div class="desktop-cart-total" id="desktop-cart-total-row" style="display:none">
+            <span data-lang-key="total">Total</span>
+            <span id="desktop-cart-total-val">Gs 0</span>
+        </div>
+        <button class="desktop-cart-btn" id="desktop-cart-btn" onclick="abrirCheckout()" disabled data-lang-key="checkout-title">
+            Finalizar Pedido
+        </button>
+    </div>
+
+    </div><!-- /desktop-layout -->
+
+    <div class="cart-float" id="cart-bar" onclick="abrirCheckout()">
+        <div class="cart-count" id="cart-count">0</div>
+        <div class="cart-text" data-lang-key="cart-title">Ver mi pedido</div>
+        <div class="cart-total" id="cart-total">Gs 0</div>
+    </div>
+
+    <div id="product-modal" class="modal-overlay">
+        <div class="modal-bottom-sheet">
+            <button class="close-modal" onclick="fecharModalProduto()">×</button>
+            
+            <div class="modal-header-prod">
+                <h3 id="modal-title">Nombre del Producto</h3>
+                <p id="modal-desc">Descripción...</p>
             </div>
-          </div>
-          <div>
-            <label style="font-size:0.82rem; color:#555; display:block; margin-bottom:6px">📅 Dias de exibição <small style="color:#aaa">(deixe todos desmarcados = todos os dias)</small></label>
-            <div style="display:flex; gap:6px; flex-wrap:wrap">
-              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="dom"> Dom</label>
-              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="seg"> Seg</label>
-              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="ter"> Ter</label>
-              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="qua"> Qua</label>
-              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="qui"> Qui</label>
-              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="sex"> Sex</label>
-              <label style="display:flex;align-items:center;gap:3px;font-size:0.8rem;cursor:pointer;background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px 8px"><input type="checkbox" class="cat-dia-check" value="sab"> Sáb</label>
+
+            <div class="modal-scroll-area">
+                
+                <div id="modal-options" class="options-list"></div>
+
+                <div id="modal-montagem" class="montagem-list" style="display:none;"></div>
+
+                <!-- RESUMO PIZZA (aparece em tempo real) -->
+                <div id="pizza-resumo" style="display:none; margin:12px 0; background:#fff8f0; border:1px solid #fde8d0; border-radius:12px; overflow:hidden;"></div>
+
+                <div class="obs-area">
+                    <label data-lang-key="modal-obs">¿Alguna observación?</label>
+                    <textarea id="modal-obs" data-lang-key-placeholder="modal-obs-ph" placeholder="Ej: Sin cebolla, capricha en el relleno..."></textarea>
+                </div>
+
             </div>
-          </div>
-          <small style="color:#888; display:block; margin-top:6px">Ex: almoço de Seg a Sex das 11:00 às 14:30. Fora desse horário/dia, a categoria fica oculta no cardápio.</small>
+
+            <div class="modal-actions">
+                <div class="stepper">
+                    <button onclick="mudarQtd(-1)">-</button>
+                    <span id="modal-qty">1</span>
+                    <button onclick="mudarQtd(1)">+</button>
+                </div>
+                <button class="btn-add" onclick="adicionarDoModal()">
+                    <span data-lang-key="modal-add">Agregar</span> <span id="modal-price">Gs 0</span>
+                </button>
+            </div>
         </div>
-        <div class="modal-actions">
-          <button class="btn btn-primary" onclick="salvarCategoria()">Salvar</button>
-          <button class="btn btn-secondary" onclick="fecharModal('modal-cat')">Cancelar</button>
-        </div>
-      </div>
     </div>
 
-    <div id="modal-moto" class="modal-overlay">
-      <div class="modal-content" style="max-width: 400px">
-        <h3>Motoboy</h3>
-        <input type="hidden" id="moto-id" />
-        <div class="form-group">
-          <label>Nome</label>
-          <input type="text" id="moto-nome" class="form-control" />
+    <div id="checkout-modal" class="modal-overlay" style="z-index: 200;">
+        <div class="modal-bottom-sheet full-height">
+            
+            <div class="checkout-header">
+                <button class="btn-limpar" onclick="limparCarrinho()" data-lang-key="btn-limpar">Limpiar</button>
+                <h3 data-lang-key="checkout-title">Finalizar Pedido</h3>
+                <button class="btn-fechar" onclick="fecharCheckout()">&times;</button>
+            </div>
+            
+            <div class="checkout-body">
+                
+                <div id="carrinho-lista" class="cart-items-list"></div>
+                
+                <!-- CUPOM DE DESCONTO -->
+                <div class="cupom-area">
+                    <h4 style="margin-bottom:10px; font-size:1rem; color:#333;" data-lang-key="label-cupom">🎟️ Cupón de Descuento</h4>
+                    <div class="cupom-input-group">
+                        <input type="text" id="cupom-codigo" data-lang-key-placeholder="label-cupom" placeholder="Ingrese el código" maxlength="20">
+                        <button onclick="aplicarCupom()">Aplicar</button>
+                    </div>
+                    <div id="cupom-msg"></div>
+                </div>
+                
+                <div class="upsell-area mt-10">
+                    <h4 style="margin-bottom:10px; font-size:0.9rem; color:#666;" data-lang-key="turbine">Bebidas & Extras</h4>
+                    <div id="lista-upsell" class="scroll-horizontal"></div>
+                </div>
+
+                <div class="form-section mt-20">
+                    <h4 style="font-size: 1.1rem; color: #2D5A27; margin-bottom: 10px; text-align: center;" data-lang-key="como-receber">
+                        <i class="fas fa-hand-point-down"></i> ¿Cómo desea recibir?
+                    </h4>
+                    <div class="delivery-toggle">
+                        <button id="btn-delivery" class="active" onclick="mudarModoEntrega('delivery')">
+                            <i class="fas fa-motorcycle"></i> <span data-lang-key="entrega">Entrega</span>
+                        </button>
+                        <button id="btn-retirada" onclick="mudarModoEntrega('retirada')">
+                            <i class="fas fa-store"></i> <span data-lang-key="retiro">Retiro</span>
+                        </button>
+                        <button id="btn-local" onclick="mudarModoEntrega('local')">
+                            <i class="fas fa-utensils"></i> <span data-lang-key="btn-local">Comer aqui</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="upsell-section">
+                    <h4 data-lang-key="turbine">Turbine su pedido 🥤</h4>
+                    <div id="upsell-list" class="upsell-scroller"></div>
+                </div>
+
+                <div class="form-section">
+                    <h4 data-lang-key="seus-dados">Sus Datos</h4>
+                    <label style="font-size: 0.8rem; color: #666;" data-lang-key="label-nome">Nombre Completo</label>
+                    <input type="text" id="cli-nome" placeholder="Ej: Juan Pérez" class="input-field">
+                    <span id="erro-nome" class="msg-erro-texto">El nombre es obligatorio</span>
+                    
+                    <label style="font-size: 0.8rem; color: #666;" data-lang-key="label-zap">WhatsApp</label>
+                    <div class="row">
+                        <select id="cli-ddi" class="input-field small">
+                            <option value="+595">🇵🇾 +595 (PY)</option>
+                            <option value="+55">🇧🇷 +55 (BR)</option>
+                            <option value="+54">🇦🇷 +54 (AR)</option>
+                            <option value="+591">🇧🇴 +591 (BO)</option>
+                            <option value="+56">🇨🇱 +56 (CL)</option>
+                            <option value="+57">🇨🇴 +57 (CO)</option>
+                            <option value="+593">🇪🇨 +593 (EC)</option>
+                            <option value="+592">🇬🇾 +592 (GY)</option>
+                            <option value="+51">🇵🇪 +51 (PE)</option>
+                            <option value="+598">🇺🇾 +598 (UY)</option>
+                            <option value="+58">🇻🇪 +58 (VE)</option>
+                        </select>
+                        <input type="tel" id="cli-tel" placeholder="99123-4567" class="input-field">
+                        <span id="erro-tel" class="msg-erro-texto">El teléfono es obligatorio</span>
+                    </div>
+                </div>
+
+                <div class="form-section" id="box-endereco">
+                    <h4 data-lang-key="label-end">Dirección de Entrega</h4>
+                    <button id="btn-gps" onclick="calcularFrete()" class="btn-gps" data-lang-key="btn-calcular">
+                        <i class="fas fa-map-marker-alt"></i> Calcular Envío (Obligatorio)
+                    </button>
+                    <div id="frete-msg" class="frete-info"></div>
+
+                    <div id="box-erro-gps" style="display:none; background:#fff3cd; color:#856404; padding:10px; border:1px solid #ffeeba; border-radius:5px; margin-top:10px; font-size:0.9rem;">
+                        <p><strong><i class="fas fa-info-circle"></i> <span data-lang-key="gps-erro-titulo">¿GPS no funcionó?</span></strong></p>
+                        <p data-lang-key="gps-erro-texto">¡Sin problemas! Marca la opción abajo para combinar el valor de la entrega por WhatsApp.</p>
+                        
+                        <label style="display:flex; align-items:center; gap:10px; margin-top:5px; cursor:pointer;">
+                            <input type="checkbox" id="check-sem-gps" style="width:20px; height:20px;">
+                            <span data-lang-key="gps-erro-check">Enviaré mi ubicación por WhatsApp</span>
+                        </label>
+                    </div>
+
+                    <input type="text" id="cli-ref" data-lang-key-placeholder="label-ref" placeholder="Punto de Referencia (Ej: Casa azul, portón negro)" class="input-field mt-10">
+                </div>
+
+                <div class="form-section">
+                    <h4 data-lang-key="pagamento">Pago</h4>
+                        <select id="forma-pag" class="input-field" onchange="verificarPagamento()">
+                            <option value="" data-lang-key="forma-pag">Seleccione la forma de pago...</option>
+                            <option value="Efetivo" data-lang-key="pag-dinheiro">Efectivo (Guaraníes)</option>
+                            <option value="Cartao" data-lang-key="pag-cartao">Tarjeta de Crédito/Débito</option>
+                            <option value="Pix" data-lang-key="pag-pix">Pix (BR)</option>
+                            <option value="Transferencia" data-lang-key="pag-transfer">Transferencia / Alias (PY)</option>
+                            <option value="Multipagamento">🔀 Dividir Pagamento</option>
+                        </select>
+
+                        <div id="info-pagamento-extra" class="payment-info-box" style="display:none;"></div>
+
+                        <div id="box-troco" class="hidden mt-10">
+                            <label style="font-size: 0.8rem;" data-lang-key="label-troco">💵 ¿Con cuánto vas a pagar? <span style="color:#e74c3c">*</span></label>
+                            <input type="text" id="troco-valor" placeholder="Ej: 100.000" class="input-field" inputmode="numeric" required>
+                        </div>
+
+                        <!-- ===== MULTIPAGAMENTO (cards como na image 3) ===== -->
+                        <div id="box-multipagamento" style="display:none; margin-top:12px;">
+
+                            <!-- Botão voltar ao pagamento único -->
+                            <button type="button" id="btn-usar-pagamento-unico" onclick="voltarPagamentoUnico()"
+                                style="width:100%; padding:12px; background:#eef4ff; color:#2980b9; border:2px solid #2980b9;
+                                       border-radius:10px; font-weight:700; cursor:pointer; font-size:0.9rem; margin-bottom:10px;
+                                       display:flex; align-items:center; justify-content:center; gap:8px;">
+                                🔁 Usar pagamento único
+                            </button>
+
+                            <p style="text-align:center; color:#888; font-size:0.82rem; margin:0 0 10px 0;">
+                                ≡ Divida o total entre as formas abaixo
+                            </p>
+
+                            <!-- Lista de formas (gerada dinamicamente) -->
+                            <div id="multi-partes"></div>
+
+                            <!-- Botão adicionar forma -->
+                            <button type="button" onclick="adicionarPartePagamento()"
+                                style="width:100%; padding:10px; background:#f8f9fa; color:#555; border:1.5px dashed #ccc;
+                                       border-radius:10px; font-weight:600; cursor:pointer; font-size:0.87rem; margin-top:4px;">
+                                + Adicionar forma de pagamento
+                            </button>
+
+                            <!-- Barra de status total coberto -->
+                            <div id="multi-status-bar" style="margin-top:10px; padding:11px 14px; border-radius:10px;
+                                background:#eafaf1; border:1.5px solid #27ae60; display:none;">
+                                <span id="multi-restante" style="font-weight:700; font-size:0.95rem;"></span>
+                            </div>
+                        </div>
+
+                    <div class="row-check mt-10" style="display:flex; align-items:center; gap:10px; padding: 10px; background: #f9f9f9; border-radius: 8px;">
+                        <input type="checkbox" id="check-factura" onchange="toggleFactura()" style="width: 20px; height: 20px;">
+                        <label for="check-factura" style="font-weight: 600;" data-lang-key="label-factura">Necesito Factura</label>
+                    </div>
+                    <div id="box-ruc" class="hidden mt-10">
+                        <input type="text" id="cli-ruc" data-lang-key-placeholder="label-ruc" placeholder="RUC o CI" class="input-field">
+                        <input type="text" id="cli-zao" data-lang-key-placeholder="label-razao" placeholder="Razón Social" class="input-field mt-10">
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="checkout-footer">
+                <div id="total-final-checkout" style="width:100%; padding: 15px 0;">
+                    <!-- Será preenchido dinamicamente pelo JavaScript -->
+                </div>
+                <button class="btn-finish" onclick="enviarZap()" data-lang-key="btn-finalizar">
+                    Confirmar Pedido <i class="fab fa-whatsapp"></i>
+                </button>
+            </div>
         </div>
-        <div class="form-group">
-          <label>Telefone (WhatsApp)</label>
-          <input type="text" id="moto-tel" class="form-control" />
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-primary" onclick="salvarMotoboy()">Salvar</button>
-          <button class="btn btn-secondary" onclick="fecharModal('modal-moto')">Cancelar</button>
-        </div>
-      </div>
     </div>
 
-    <!-- ===== MODAL CAIXA (faltava no HTML) ===== -->
-    <div id="modal-caixa" class="modal-overlay" style="display:none">
-      <div class="modal-content" style="max-width:420px">
-        <h3 id="titulo-caixa">Operação de Caixa</h3>
-        <input type="hidden" id="tipo-caixa" value="">
-        <div class="form-group">
-          <label>Valor (Gs)</label>
-          <input type="number" id="valor-caixa" class="form-control" placeholder="Ex: 50000" min="1">
+    <!-- ===== TRACKING DE PEDIDO ===== -->
+    <!-- ===== RODAPÉ ===== -->
+    <footer style="background:#2c3e50; color:#ecf0f1; text-align:center; padding:20px 10px; margin-top:40px; font-size:0.9rem;">
+        <p style="margin:0 0 5px 0;">💼 Desarrollado por <strong>MyM Developer's</strong></p>
+        <p style="margin:0; font-size:0.85rem;">
+            <i class="fab fa-whatsapp"></i> WhatsApp: 
+            <a href="https://wa.me/595976771714" target="_blank" style="color:#25D366; text-decoration:none; font-weight:600;">
+                +595 976 771 714
+            </a>
+        </p>
+        <p style="margin:10px 0 0 0; font-size:0.75rem; color:#95a5a6;">
+            Soluciones tecnológicas para restaurantes y servicios de entrega.
+        </p>
+    </footer>
+
+    <!-- ===== BANNER DE INSTALAÇÃO PWA ===== -->
+    <div id="pwa-install-banner" style="display:none; position:fixed; bottom:0; left:0; right:0; background:linear-gradient(135deg, #1a7a2e 0%, #155c24 100%); color:white; padding:15px 20px; z-index:1000; box-shadow:0 -4px 20px rgba(0,0,0,0.2);">
+        <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
+            <div style="display:flex; align-items:center; gap:15px;">
+                <img src="https://media.bio.site/sites/79CC2018-24E6-48C4-A856-4C1E36908B60/AWwTtFWnmuqVysXARE2MRX.png" style="width:45px; height:45px; border-radius:10px; background:white; padding:3px;">
+                <div>
+                    <div style="font-weight:700; font-size:1rem;">📲 Instalar Cantinho Brasileiro</div>
+                    <div style="font-size:0.85rem; opacity:0.9;">Accede más rápido desde tu pantalla de inicio</div>
+                </div>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button onclick="dismissPWAInstall()" style="background:rgba(255,255,255,0.2); border:none; color:white; padding:10px 15px; border-radius:8px; font-weight:600; cursor:pointer;">Ahora no</button>
+                <button onclick="installPWA()" style="background:white; border:none; color:#1a7a2e; padding:10px 20px; border-radius:8px; font-weight:700; cursor:pointer;">Instalar</button>
+            </div>
         </div>
-        <div class="form-group">
-          <label>Descrição</label>
-          <input type="text" id="desc-caixa" class="form-control" placeholder="Ex: Pagamento fornecedor">
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-secondary" onclick="fecharModal('modal-caixa')">Cancelar</button>
-          <button class="btn btn-primary" onclick="salvarMovimentacaoCaixa()">
-            <i class="fas fa-save"></i> Salvar
-          </button>
-        </div>
-      </div>
     </div>
 
-    <!-- MODAL RELATÓRIO DETALHADO DE PEDIDOS -->
-<div id="modal-relatorio" class="modal-overlay" style="display:none; align-items:flex-start; padding:10px; overflow-y:auto;">
-  <div class="modal-content" style="max-width:95vw; width:100%; margin:auto; max-height:90vh; overflow-y:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; position:sticky; top:0; background:white; padding:8px 0; z-index:10; border-bottom:1px solid #eee;">
-      <h3 style="margin:0"><i class="fas fa-clipboard-list" style="color:#3498db"></i> Relatório de Pedidos</h3>
-      <button onclick="fecharModal('modal-relatorio')" style="background:#e74c3c;color:white;border:none;border-radius:50%;width:32px;height:32px;font-size:1.1rem;cursor:pointer">×</button>
-    </div>
-    
-    <!-- Filtros -->
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; background:#f8f9fa; padding:12px; border-radius:8px;">
-      <div class="form-group" style="margin:0; flex:0 0 auto;">
-        <label style="font-size:0.8rem;font-weight:600">Nº do Pedido</label>
-        <input type="number" id="rel-filtro-numero" class="form-control" placeholder="Ex: 91" style="width:120px;" oninput="this.value ? (document.getElementById('rel-filtro-inicio').disabled=true, document.getElementById('rel-filtro-fim').disabled=true) : (document.getElementById('rel-filtro-inicio').disabled=false, document.getElementById('rel-filtro-fim').disabled=false)">
-      </div>
-      <div class="form-group" style="margin:0; flex:0 0 auto;">
-        <label style="font-size:0.8rem;font-weight:600">De</label>
-        <input type="date" id="rel-filtro-inicio" class="form-control">
-      </div>
-      <div class="form-group" style="margin:0; flex:0 0 auto;">
-        <label style="font-size:0.8rem;font-weight:600">Até</label>
-        <input type="date" id="rel-filtro-fim" class="form-control">
-      </div>
-      <div class="form-group" style="margin:0; display:flex; align-items:flex-end;">
-        <button class="btn btn-primary" onclick="carregarRelatorio()"><i class="fas fa-search"></i> Filtrar</button>
-      </div>
-      <div style="display:flex; align-items:flex-end; margin-left:auto;">
-        <span id="rel-total-count" style="font-size:0.85rem;color:#666;"></span>
-      </div>
-    </div>
-
-    <!-- Tabela -->
-    <div class="table-container" style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:0.83rem;border-radius:10px;overflow:hidden;">
-        <thead>
-          <tr style="background:linear-gradient(135deg,#1a1a2e,#2c3e50);color:white;font-size:0.78rem;letter-spacing:0.5px;text-transform:uppercase;">
-            <th style="padding:12px 10px;text-align:left;width:70px">#ID / Data</th>
-            <th style="padding:12px 10px;text-align:left">Cliente</th>
-            <th style="padding:12px 10px;text-align:left">Itens</th>
-            <th style="padding:12px 10px;text-align:left;width:130px">Status</th>
-            <th style="padding:12px 10px;text-align:right;width:110px">Total</th>
-            <th style="padding:12px 10px;text-align:left;width:200px">⏱ Timeline</th>
-          </tr>
-        </thead>
-        <tbody id="rel-tbody"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script src="supabaseClient.js"></script>
-    <script src="admin.js"></script>
-  
-    <!-- ===== MODAL GRÁFICOS ===== -->
-<div id="modal-graficos" class="modal-overlay" style="display:none; align-items:flex-start; padding:20px; overflow-y:auto">
-  <div class="modal-content" style="max-width:720px; width:100%; margin:auto">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
-      <h3 style="margin:0"><i class="fas fa-chart-bar" style="color:#8e44ad"></i> Análise Comparativa de Vendas</h3>
-      <button onclick="fecharModal('modal-graficos')" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#888">✕</button>
-    </div>
-
-    <!-- Seletores de período -->
-    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap">
-      <button class="btn btn-periodo btn-sm" data-dias="7"  onclick="carregarDadosGrafico('7')"  style="background:#8e44ad;color:#fff;padding:6px 14px;border-radius:20px;border:none;cursor:pointer;font-size:0.85rem">7 dias</button>
-      <button class="btn btn-periodo btn-sm" data-dias="14" onclick="carregarDadosGrafico('14')" style="background:#bdc3c7;color:#333;padding:6px 14px;border-radius:20px;border:none;cursor:pointer;font-size:0.85rem">14 dias</button>
-      <button class="btn btn-periodo btn-sm" data-dias="30" onclick="carregarDadosGrafico('30')" style="background:#bdc3c7;color:#333;padding:6px 14px;border-radius:20px;border:none;cursor:pointer;font-size:0.85rem">30 dias</button>
-    </div>
-
-    <!-- Cards de resumo -->
-    <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:16px">
-      <div style="background:#f0f9f4; border-radius:10px; padding:12px; border-left:4px solid #27ae60">
-        <div style="font-size:0.75rem; color:#888; font-weight:600">TOTAL DO PERÍODO</div>
-        <div id="graf-total-periodo" style="font-size:1.1rem; font-weight:700; color:#27ae60">-</div>
-      </div>
-      <div style="background:#f0f4ff; border-radius:10px; padding:12px; border-left:4px solid #3498db">
-        <div style="font-size:0.75rem; color:#888; font-weight:600">MÉDIA POR DIA</div>
-        <div id="graf-media-dia" style="font-size:1.1rem; font-weight:700; color:#3498db">-</div>
-      </div>
-      <div style="background:#f0fff4; border-radius:10px; padding:12px; border-left:4px solid #2ecc71">
-        <div style="font-size:0.75rem; color:#888; font-weight:600">🏆 MELHOR DIA</div>
-        <div id="graf-melhor-dia" style="font-size:0.9rem; font-weight:700; color:#27ae60">-</div>
-      </div>
-      <div style="background:#fff5f5; border-radius:10px; padding:12px; border-left:4px solid #e74c3c">
-        <div style="font-size:0.75rem; color:#888; font-weight:600">📉 PIOR DIA</div>
-        <div id="graf-pior-dia" style="font-size:0.9rem; font-weight:700; color:#e74c3c">-</div>
-      </div>
-    </div>
-
-    <!-- Gráfico de barras -->
-    <div style="position:relative; height:280px; background:#fafafa; border-radius:10px; padding:10px">
-      <canvas id="canvas-grafico"></canvas>
-    </div>
-
-    <p style="font-size:0.75rem; color:#aaa; margin-top:10px; text-align:center">
-      🟢 Melhor dia &nbsp;|&nbsp; 🔴 Pior dia &nbsp;|&nbsp; 🔵 Demais dias
-    </p>
-  </div>
-</div>
-
+    <script src="app.js"></script>
+    <script>
+        // Registro do Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
+        
+        // ===== PWA INSTALL PROMPT =====
+        let deferredPrompt;
+        const pwaBanner = document.getElementById('pwa-install-banner');
+        
+        // Captura o evento beforeinstallprompt
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // Previne o prompt padrão do Chrome
+            e.preventDefault();
+            // Guarda o evento para usar depois
+            deferredPrompt = e;
+            // Mostra o banner customizado
+            if (pwaBanner) {
+                pwaBanner.style.display = 'block';
+            }
+        });
+        
+        // Função para instalar o PWA
+        function installPWA() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('✅ Usuário instalou o PWA');
+                    } else {
+                        console.log('❌ Usuário recusou a instalação');
+                    }
+                    deferredPrompt = null;
+                    if (pwaBanner) pwaBanner.style.display = 'none';
+                });
+            }
+        }
+        
+        // Função para dispensar o banner
+        function dismissPWAInstall() {
+            if (pwaBanner) pwaBanner.style.display = 'none';
+            // Salva no localStorage para não mostrar novamente por 7 dias
+            localStorage.setItem('pwa_dismissed', Date.now().toString());
+        }
+        
+        // Verifica se o usuário já dispensou o banner recentemente
+        window.addEventListener('DOMContentLoaded', () => {
+            const dismissed = localStorage.getItem('pwa_dismissed');
+            if (dismissed) {
+                const daysSince = (Date.now() - parseInt(dismissed)) / (1000 * 60 * 60 * 24);
+                if (daysSince < 7) {
+                    // Não mostra o banner se foi dispensado há menos de 7 dias
+                    if (pwaBanner) pwaBanner.style.display = 'none';
+                }
+            }
+        });
+        
+        // Detecta quando o app é instalado
+        window.addEventListener('appinstalled', () => {
+            console.log('🎉 PWA instalado com sucesso!');
+            if (pwaBanner) pwaBanner.style.display = 'none';
+            deferredPrompt = null;
+        });
+    </script>
 </body>
-</html
-      /* PDV — Botões tipo de atendimento */
-      .pdv-tipo-btn {
-        flex: 1; padding: 8px 4px; border: 2px solid #ddd; border-radius: 10px;
-        background: #f8f9fa; font-size: 0.78rem; font-weight: 700; color: #666;
-        cursor: pointer; transition: all 0.15s; text-align: center; line-height: 1.3;
-      }
-      .pdv-tipo-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0faf0; }
-      .pdv-tipo-ativo { border-color: var(--primary) !important; background: #e8f5e8 !important; color: var(--primary) !important; }
->
+</html>
