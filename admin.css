@@ -4064,3 +4064,12 @@ hr.modal-divisor {
     flex: 1 1 100px;
   }
 }
+
+ /* PDV — Botões tipo de atendimento */
+      .pdv-tipo-btn {
+        flex: 1; padding: 8px 4px; border: 2px solid #ddd; border-radius: 10px;
+        background: #f8f9fa; font-size: 0.78rem; font-weight: 700; color: #666;
+        cursor: pointer; transition: all 0.15s; text-align: center; line-height: 1.3;
+      }
+      .pdv-tipo-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0faf0; }
+      .pdv-tipo-ativo { border-color: var(--primary) !important; background: #e8f5e8 !important; color: var(--primary) !important; }

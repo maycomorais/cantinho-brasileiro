@@ -137,7 +137,7 @@
 
         <div class="totals">
             Subtotal: <span id="subtotal">Gs 0</span><br>
-            Frete: <span id="frete">Gs 0</span><br>
+            <span id="frete-row">Frete: <span id="frete">Gs 0</span><br></span>
             <div class="total-final">TOTAL: <span id="total-geral">Gs 0</span></div>
         </div>
         <hr>
@@ -265,8 +265,14 @@
 
                 // 4. Totais
                 const valores = pedido.valores || {};
+                const freteVal = valores.frete || valores.frete_cobrado_cliente || 0;
                 document.getElementById('subtotal').innerText = `Gs ${(valores.sub || valores.subtotal || 0).toLocaleString('es-PY')}`;
-                document.getElementById('frete').innerText = `Gs ${(valores.frete || valores.frete_cobrado_cliente || 0).toLocaleString('es-PY')}`;
+                document.getElementById('frete').innerText = `Gs ${freteVal.toLocaleString('es-PY')}`;
+                // Só exibe linha de frete se houver valor
+                if (!freteVal) {
+                    const freteRow = document.getElementById('frete-row');
+                    if (freteRow) freteRow.style.display = 'none';
+                }
                 document.getElementById('total-geral').innerText = `Gs ${(valores.total || valores.total_geral || 0).toLocaleString('es-PY')}`;
 
                 // 5. Pagamento

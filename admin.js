@@ -3,6 +3,7 @@
 // =========================================
 const TAXA_MOTOBOY = 5000;
 let AJUDA_COMBUSTIVEL = 20000; // Carregado do banco em carregarConfiguracoes()
+let TABELA_FRETE_ADMIN = null; // Tabela de frete carregada do banco (usada no PDV delivery)
 const COORD_LOJA = { lat: -25.2365803, lng: -57.5380816 };
 
 let perfilUsuario = null;
@@ -999,16 +1000,21 @@ async function calcularFinanceiro() {
       totalEfetivo += valorPedido;
 
     if (p.tipo_entrega === "delivery") {
-      custoEntregas +=
-        typeof TAXA_MOTOBOY !== "undefined" ? TAXA_MOTOBOY : 5000;
+      // Usa o valor real pago ao motoboy registrado no pedido;
+      // se não existir (pedidos antigos), cai no valor padrão TAXA_MOTOBOY
+      const custoMotoboy = p.frete_motoboy > 0
+        ? p.frete_motoboy
+        : (typeof TAXA_MOTOBOY !== "undefined" ? TAXA_MOTOBOY : 5000);
+      custoEntregas += custoMotoboy;
       const nomeMoto = p.motoboys?.nome || "Sem Motoboy";
       if (!motoMap[nomeMoto]) {
-        motoMap[nomeMoto] = 0;
+        motoMap[nomeMoto] = { qtd: 0, totalFrete: 0 };
         // Adiciona combustível 1× por motoboy único no período
         custoEntregas +=
           typeof AJUDA_COMBUSTIVEL !== "undefined" ? AJUDA_COMBUSTIVEL : 20000;
       }
-      motoMap[nomeMoto]++;
+      motoMap[nomeMoto].qtd++;
+      motoMap[nomeMoto].totalFrete += custoMotoboy;
     }
   });
 
@@ -1070,18 +1076,18 @@ async function calcularFinanceiro() {
       tbodyMoto.innerHTML =
         '<tr><td colspan="4" style="text-align:center; color:#999">Nenhuma entrega no período</td></tr>';
     } else {
-      for (const [nome, qtd] of Object.entries(motoMap)) {
-        const taxaMoto =
-          typeof TAXA_MOTOBOY !== "undefined" ? TAXA_MOTOBOY : 5000;
+      for (const [nome, dados] of Object.entries(motoMap)) {
+        const qtd = dados.qtd || 0;
+        const totalFrete = dados.totalFrete || 0;
         const combustivel =
           typeof AJUDA_COMBUSTIVEL !== "undefined" ? AJUDA_COMBUSTIVEL : 20000;
-        const totalEntregas = qtd * taxaMoto;
-        const totalMoto = totalEntregas + combustivel; // combustível: 1x por motoboy por dia
+        const totalMoto = totalFrete + combustivel; // combustível: 1x por motoboy por dia
+        const mediaFrete = qtd > 0 ? Math.round(totalFrete / qtd) : 0;
         tbodyMoto.innerHTML += `
                     <tr>
                         <td data-label="Nome">${nome}</td>
                         <td data-label="Entregas">${qtd}</td>
-                        <td data-label="Taxa">Gs ${taxaMoto.toLocaleString("es-PY")} × ${qtd} + comb. Gs ${combustivel.toLocaleString("es-PY")}</td>
+                        <td data-label="Taxa">Gs ${totalFrete.toLocaleString("es-PY")} em fretes (média Gs ${mediaFrete.toLocaleString("es-PY")}) + comb. Gs ${combustivel.toLocaleString("es-PY")}</td>
                         <td data-label="Total a Pagar"><strong>Gs ${totalMoto.toLocaleString("es-PY")}</strong></td>
                     </tr>`;
       }
@@ -1699,7 +1705,10 @@ function enviarRotaZap() {
       }
 
       msg += `-----------------\n`;
-      taxaTotal += typeof TAXA_MOTOBOY !== "undefined" ? TAXA_MOTOBOY : 5000;
+      // Usa frete_motoboy real do pedido; fallback para TAXA_MOTOBOY se não existir
+      taxaTotal += p.frete_motoboy > 0
+        ? p.frete_motoboy
+        : (typeof TAXA_MOTOBOY !== "undefined" ? TAXA_MOTOBOY : 5000);
     } catch (e) {
       console.error("Erro ao processar pedido na rota:", e);
     }
@@ -4326,6 +4335,10 @@ async function carregarConfiguracoes() {
 
   // Carrega tabela de frete e combustível
   _renderTabelaFrete(data.tabela_frete || null);
+  // Carrega tabela de frete em memória para uso no PDV
+  if (data.tabela_frete && Array.isArray(data.tabela_frete)) {
+    TABELA_FRETE_ADMIN = data.tabela_frete;
+  }
   const combEl = document.getElementById("cfg-combustivel");
   if (combEl) {
     const saved = data.ajuda_combustivel ?? 20000;
@@ -4662,9 +4675,15 @@ async function carregarDashboard() {
   };
   setVal("kpi-vendas", `Gs ${total.toLocaleString("es-PY")}`);
   setVal("kpi-pedidos", pedidos ? pedidos.length : 0);
+  // Custo real de entregas: soma frete_motoboy de cada pedido delivery
+  const custoMotoHoje = pedidos
+    ? pedidos
+        .filter(p => p.tipo_entrega === 'delivery')
+        .reduce((acc, p) => acc + (p.frete_motoboy > 0 ? p.frete_motoboy : TAXA_MOTOBOY), 0)
+    : 0;
   setVal(
     "kpi-moto",
-    `Gs ${((pedidos?.length || 0) * TAXA_MOTOBOY + (pedidos?.length > 0 ? AJUDA_COMBUSTIVEL : 0)).toLocaleString("es-PY")}`,
+    `Gs ${(custoMotoHoje + (pedidos?.some(p => p.tipo_entrega === 'delivery') ? AJUDA_COMBUSTIVEL : 0)).toLocaleString("es-PY")}`,
   );
   setVal("kpi-em-preparo", emPreparo || 0);
 
@@ -6388,7 +6407,11 @@ function atualizarCarrinhoPDV() {
     lista.innerHTML = '<p class="pdv-lista-vazio">Nenhum item adicionado.</p>';
   }
 
-  if (totalEl) totalEl.innerText = total.toLocaleString("es-PY");
+  // Soma frete de delivery ao total exibido
+  const freteEl = document.getElementById('balcao-frete');
+  const freteVal = freteEl ? (parseInt(freteEl.value) || 0) : 0;
+  const totalComFretePDV = total + freteVal;
+  if (totalEl) totalEl.innerText = totalComFretePDV.toLocaleString("es-PY");
 
   // Atualiza barra inferior mobile
   const mobileQtd = document.getElementById("pdv-mobile-qtd");
@@ -6673,15 +6696,28 @@ async function salvarPedidoBalcao() {
   }
 
   // ── INSERT: novo pedido de balcão ─────────────────────────────
+  // ── Calcula frete para delivery no PDV (usa tabela configurada) ──────────
+  let fretePDV = 0;
+  let freteMototPDV = 0;
+  if (tipo === 'delivery' && TABELA_FRETE_ADMIN) {
+    // Tenta pegar frete manualmente informado pelo atendente
+    const freteManualEl = document.getElementById('balcao-frete');
+    const freteManual = freteManualEl ? parseInt(freteManualEl.value) || 0 : 0;
+    fretePDV = freteManual;
+    freteMototPDV = freteManual;
+  }
+
   const totalNovo = novosItens.reduce((acc, i) => acc + i.preco * i.qtd, 0);
+  const totalComFrete = totalNovo + fretePDV;
   const _agora = new Date().toISOString();
   const pedido = {
     uid_temporal: `BALC-${Math.floor(Math.random() * 1000)}`,
     status: "em_preparo",
     tipo_entrega: tipoEntregaBanco,
-    total_geral: totalNovo,
+    total_geral: totalComFrete,
     subtotal: totalNovo,
-    frete_cobrado_cliente: 0,
+    frete_cobrado_cliente: fretePDV,
+    frete_motoboy: freteMototPDV,
     forma_pagamento: pag,
     itens: novosItens,
     endereco_entrega: enderecoFinal,

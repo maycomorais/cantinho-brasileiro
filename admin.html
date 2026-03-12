@@ -322,6 +322,11 @@
                 <label class="pdv-label">📍 Endereço / Link de localização</label>
                 <input type="text" id="balcao-endereco" class="form-control"
                   placeholder="Cole o endereço ou link do Google Maps" />
+                <label class="pdv-label" style="margin-top:8px">🛵 Valor do Delivery (Gs)</label>
+                <input type="number" id="balcao-frete" class="form-control"
+                  placeholder="Ex: 8000" min="0" step="1000"
+                  style="border:2px solid #27ae60;"
+                  oninput="atualizarCarrinhoPDV()" />
               </div>
 
               <div class="pdv-lista-itens" id="pdv-lista"></div>
@@ -1358,12 +1363,4 @@
 
 </body>
 </html
-      /* PDV — Botões tipo de atendimento */
-      .pdv-tipo-btn {
-        flex: 1; padding: 8px 4px; border: 2px solid #ddd; border-radius: 10px;
-        background: #f8f9fa; font-size: 0.78rem; font-weight: 700; color: #666;
-        cursor: pointer; transition: all 0.15s; text-align: center; line-height: 1.3;
-      }
-      .pdv-tipo-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0faf0; }
-      .pdv-tipo-ativo { border-color: var(--primary) !important; background: #e8f5e8 !important; color: var(--primary) !important; }
 >

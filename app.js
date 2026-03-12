@@ -13,48 +13,53 @@ const DADOS_ALIAS = 'danyneto34@gmail.com';
 const ALIAS_PY = 'Daniely Coelho da Silva | Continental';
 
 function iniciarTimerAutoConfirmacao(pedidoId) {
-    // 4 horas em milissegundos
-    const QUATRO_HORAS = 4 * 60 * 60 * 1000;
-    
+    const TRES_HORAS = 3 * 60 * 60 * 1000;
+
     // Cancela timer anterior se existir
     if (autoConfirmTimer) {
         clearTimeout(autoConfirmTimer);
+        autoConfirmTimer = null;
     }
-    
-    // Inicia novo timer
-    autoConfirmTimer = setTimeout(async () => {
-        console.log('⏰ 4 horas passadas, confirmando entrega automaticamente...');
-        await confirmarEntregaAutomatica(pedidoId);
-    }, QUATRO_HORAS);
-    
-    // Salva timestamp no localStorage para persistir entre reloads
+
+    // Salva timestamp de início no localStorage para persistir entre reloads
     const agora = new Date().getTime();
-    const tempoExpiracao = agora + QUATRO_HORAS;
+    const tempoExpiracao = agora + TRES_HORAS;
     localStorage.setItem('cantinho_confirmExpiry_' + pedidoId, tempoExpiracao);
-    
-    console.log('⏰ Timer de auto-confirmação iniciado para 4 horas');
+
+    // Inicia timer
+    autoConfirmTimer = setTimeout(async () => {
+        console.log('⏰ 3 horas passadas, confirmando entrega automaticamente...');
+        await confirmarEntregaAutomatica(pedidoId);
+    }, TRES_HORAS);
+
+    console.log('⏰ Timer de auto-confirmação iniciado para 3 horas');
 }
+
 
 // ===== FUNÇÃO PARA RESTAURAR TIMER APÓS RELOAD =====
 function restaurarTimerSeNecessario() {
     const pedidoId = localStorage.getItem('cantinho_pedido_id');
     if (!pedidoId) return;
-    
+
     const tempoExpiracao = localStorage.getItem('cantinho_confirmExpiry_' + pedidoId);
     if (!tempoExpiracao) return;
-    
+
     const agora = new Date().getTime();
     const tempoRestante = parseInt(tempoExpiracao) - agora;
-    
+
+    if (autoConfirmTimer) {
+        clearTimeout(autoConfirmTimer);
+        autoConfirmTimer = null;
+    }
+
     if (tempoRestante > 0) {
-        // Ainda há tempo restante
-        console.log('⏰ Restaurando timer de auto-confirmação...');
+        console.log(`⏰ Restaurando timer — ${Math.round(tempoRestante/60000)} min restantes`);
         autoConfirmTimer = setTimeout(async () => {
             await confirmarEntregaAutomatica(pedidoId);
         }, tempoRestante);
     } else {
-        // Tempo já expirou, confirmar agora
-        console.log('⏰ Tempo expirado, confirmando agora...');
+        // Tempo já expirou enquanto a página estava fechada — confirmar agora
+        console.log('⏰ Tempo expirado enquanto offline, confirmando agora...');
         confirmarEntregaAutomatica(parseInt(pedidoId));
     }
 }
@@ -72,10 +77,13 @@ async function confirmarEntregaAutomatica(pedidoId) {
         
         if (error) throw error;
         
-        console.log('✅ Entrega confirmada automaticamente após 4 horas');
-        
+        console.log('✅ Entrega confirmada automaticamente após 3 horas');
+
         // Limpa dados locais
         localStorage.removeItem('cantinho_confirmExpiry_' + pedidoId);
+        localStorage.removeItem('cantinho_pedido_id');
+        localStorage.removeItem('cantinho_pedido_uid');
+        autoConfirmTimer = null;
         fecharTracker();
         
         // Mostra notificação
@@ -251,10 +259,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await verificarHorario();
   
   // 4. Restaura tracking se houver pedido ativo
+  // (restaurarTimerSeNecessario é chamado dentro do tracking, após confirmar status)
   restaurarTrackingSeExistir();
-
-  // Restaura timer se página foi recarregada durante entrega
-  restaurarTimerSeNecessario();
   
   // 5. Carrega extras globais (adicionais que aparecem em todos os produtos)
   await carregarExtrasGlobais();
@@ -546,7 +552,15 @@ async function renderMenu() {
   function renderProdutoDiv(item) {
     const img = item.img || 'https://cdn-icons-png.flaticon.com/512/2252/2252075.png';
     const cfg = item.montagem;
-    const tipo = (cfg && !Array.isArray(cfg) && cfg.__tipo) ? cfg.__tipo : (item.e_montavel ? 'montavel' : 'padrao');
+    // Detecta tipo — também reconhece variacoes sem __tipo explícito (retrocompatibilidade)
+    let tipo = 'padrao';
+    if (cfg && !Array.isArray(cfg) && cfg.__tipo) {
+      tipo = cfg.__tipo;
+    } else if (cfg && !Array.isArray(cfg) && cfg.variacoes && cfg.variacoes.length > 0) {
+      tipo = 'variacoes';
+    } else if (item.e_montavel || (cfg && Array.isArray(cfg) && cfg.length > 0)) {
+      tipo = 'montavel';
+    }
 
     let precoLabel = `Gs ${item.preco.toLocaleString('es-PY')}`;
     if (tipo === 'variacoes' && cfg && cfg.variacoes && cfg.variacoes.length > 0) {
@@ -653,8 +667,13 @@ function abrirModal(item) {
   // Detecta tipo do produto
   const cfg = item.montagem; // montagem_config do banco
   let tipo = 'padrao';
-  if (cfg && !Array.isArray(cfg) && cfg.__tipo) tipo = cfg.__tipo;
-  else if (item.e_montavel || (cfg && Array.isArray(cfg) && cfg.length > 0)) tipo = 'montavel';
+  if (cfg && !Array.isArray(cfg) && cfg.__tipo) {
+    tipo = cfg.__tipo;
+  } else if (cfg && !Array.isArray(cfg) && cfg.variacoes && cfg.variacoes.length > 0) {
+    tipo = 'variacoes'; // retrocompatibilidade — variacoes sem __tipo explícito
+  } else if (item.e_montavel || (cfg && Array.isArray(cfg) && cfg.length > 0)) {
+    tipo = 'montavel';
+  }
 
   if (tipo === 'shake') {
     _renderShake(cfg, divOptions);
@@ -1333,34 +1352,26 @@ function adicionarDoModal() {
 
   const cfg = prodAtual.montagem;
   let tipo = 'padrao';
-  if (cfg && !Array.isArray(cfg) && cfg.__tipo) tipo = cfg.__tipo;
-  else if (prodAtual.e_montavel || (cfg && Array.isArray(cfg) && cfg.length > 0)) tipo = 'montavel';
+  if (cfg && !Array.isArray(cfg) && cfg.__tipo) {
+    tipo = cfg.__tipo;
+  } else if (cfg && !Array.isArray(cfg) && cfg.variacoes && cfg.variacoes.length > 0) {
+    tipo = 'variacoes';
+  } else if (prodAtual.e_montavel || (cfg && Array.isArray(cfg) && cfg.length > 0)) {
+    tipo = 'montavel';
+  }
 
-  // Validações por tipo
+  // Validações por tipo — cada tipo em seu próprio bloco
   if (tipo === 'pizza') {
     if (!_pizzaConfig.tamanhoSelecionado) { alert('Selecione o tamanho da pizza!'); return; }
-    // Shake
-    if (tipo === 'shake') {
-      const tamPreco = _shakeConfig.tamanhoSelecionado?.preco || 0;
-      const saborExtra = _shakeConfig.saborSelecionado?.preco || 0;
-      precoFinal = tamPreco + saborExtra;
-      variacao = [_shakeConfig.tamanhoSelecionado?.nome, _shakeConfig.saborSelecionado?.nome].filter(Boolean).join(' – ');
-      montagem = variacao ? [variacao] : [];
-      if (!_shakeConfig.tamanhoSelecionado) {
-        alert('Escolha um tamanho para o Milk Shake.');
-        return;
-      }
-      if (!_shakeConfig.saborSelecionado) {
-        alert('Escolha um sabor para o Milk Shake.');
-        return;
-      }
-    }
-
     const saboresOk = (_pizzaConfig.sabores || []).filter(Boolean);
     if (saboresOk.length === 0) { alert('Selecione ao menos 1 sabor!'); return; }
     if (_pizzaConfig.numSabores && saboresOk.length < _pizzaConfig.numSabores) {
       alert(`Você escolheu ${_pizzaConfig.numSabores} sabores mas selecionou apenas ${saboresOk.length}. Complete a seleção!`); return;
     }
+  }
+  if (tipo === 'shake') {
+    if (!_shakeConfig.tamanhoSelecionado) { alert('Escolha um tamanho para o Milk Shake.'); return; }
+    if (!_shakeConfig.saborSelecionado)   { alert('Escolha um sabor para o Milk Shake.');   return; }
   }
   if (tipo === 'almoco' && !prodAtual._pratoselecionado) {
     alert('Selecione o prato!'); return;
@@ -1384,6 +1395,17 @@ function adicionarDoModal() {
     }
   }
 
+  // ── SHAKE: tamanho + sabor ─────────────────────────────────
+  if (tipo === 'shake') {
+    const tamPreco   = _shakeConfig.tamanhoSelecionado?.preco || 0;
+    const saborExtra = _shakeConfig.saborSelecionado?.preco  || 0;
+    precoFinal = tamPreco + saborExtra;
+    // variacao exibe "300ml – Morango" no carrinho, cozinha e impressão
+    variacao = [_shakeConfig.tamanhoSelecionado?.nome, _shakeConfig.saborSelecionado?.nome]
+                .filter(Boolean).join(' – ');
+    montagem = []; // não duplica em montagem — variacao já carrega a info
+  }
+
   if (tipo === 'pizza') {
     // ─────────────────────────────────────────────────────────────
     // PREÇO PIZZA:
@@ -1394,8 +1416,8 @@ function adicionarDoModal() {
     // ─────────────────────────────────────────────────────────────
     const saboresOk = (_pizzaConfig.sabores || []).filter(Boolean);
     const tam         = _pizzaConfig.tamanhoSelecionado;
-const precoBorda  = _pizzaConfig.bordaConfig?.preco || 0;
-precoFinal = _calcularBasePizza(tam, saboresOk) + precoBorda;
+    const precoBorda  = _pizzaConfig.bordaConfig?.preco || 0;
+    precoFinal = _calcularBasePizza(tam, saboresOk) + precoBorda;
 
     variacao  = _pizzaConfig.tamanhoSelecionado?.nome || '';
     const numSab = _pizzaConfig.numSabores || 1;
@@ -2751,6 +2773,12 @@ function restaurarTrackingSeExistir() {
 
             _iniciarPollingTracking(savedId, savedUid);
             _tentarCanalRealtime(savedId, savedUid);
+
+            // Restaura timer APÓS confirmar que o pedido está em saiu_entrega
+            // (garante que pedidoId já está no localStorage e status é o correto)
+            if (data.status === 'saiu_entrega') {
+                restaurarTimerSeNecessario();
+            }
         });
 }
 
