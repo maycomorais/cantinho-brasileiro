@@ -2345,26 +2345,38 @@ async function enviarZap() {
         : null,
     };
 
-    const { data: pedidoSalvo, error } = await supa.from('pedidos').insert([pedidoDb]).select().single();
+    // ── Envia para a Edge Function (valida frete no servidor) ──────────────
+    const { data: fnData, error: fnError } = await supa.functions.invoke('validar-pedido', {
+      body: pedidoDb,
+    });
 
-    if (error) {
-      console.error('Erro ao salvar pedido:', error);
+    if (fnError || !fnData?.id) {
+      console.error('Erro ao salvar pedido:', fnError || fnData);
       alert('⚠️ Erro ao salvar pedido no sistema. Tente novamente.');
       return;
     }
-    
-    if (pedidoSalvo) {
-      pedidoDbId = pedidoSalvo.id;
-      numeroPedido = pedidoSalvo.id; // USA O ID DO BANCO
-      console.log('✅ Pedido salvo com ID:', pedidoDbId);
 
-      // Incrementa contador de usos do cupom
-      if (cupomAplicado?.id) {
-        const novosUsos = (cupomAplicado.usos_realizados || 0) + 1;
-        await supa.from('cupons')
-          .update({ usos_realizados: novosUsos })
-          .eq('id', cupomAplicado.id);
-      }
+    pedidoDbId   = fnData.id;
+    numeroPedido = fnData.id;
+
+    // Se o servidor corrigiu o frete, atualiza variáveis locais para a mensagem
+    if (fnData.frete_cobrado_cliente !== undefined && fnData.frete_cobrado_cliente !== freteAplicado) {
+      console.warn('ℹ️ Frete ajustado pelo servidor:', fnData.frete_cobrado_cliente);
+      freteAplicado = fnData.frete_cobrado_cliente;
+    }
+    if (fnData.frete_a_combinar) {
+      freteACombinar = true;
+      freteAplicado  = 0;
+    }
+
+    console.log('✅ Pedido salvo com ID:', pedidoDbId);
+
+    // Incrementa contador de usos do cupom
+    if (cupomAplicado?.id) {
+      const novosUsos = (cupomAplicado.usos_realizados || 0) + 1;
+      await supa.from('cupons')
+        .update({ usos_realizados: novosUsos })
+        .eq('id', cupomAplicado.id);
     }
   }
 
