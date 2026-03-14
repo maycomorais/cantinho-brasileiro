@@ -2086,6 +2086,29 @@ function _coletarMultiPagamento() {
   return partes;
 }
 
+async function obterDistanciaPelaRota(latDestino, lngDestino) {
+    const origem = `${COORD_LOJA.lng},${COORD_LOJA.lat}`; // OSRM usa Longitude,Latitude
+    const destino = `${lngDestino},${latDestino}`;
+    
+    // API pública do OSRM (perfil 'driving' para carros/motos)
+    const url = `https://router.project-osrm.org/route/v1/driving/${origem};${destino}?overview=false`;
+
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.code === "Ok") {
+            // A distância vem em metros. Convertemos para KM.
+            const distanciaMetros = data.routes[0].distance;
+            return distanciaMetros / 1000;
+        }
+        return null;
+    } catch (error) {
+        console.error("Erro ao consultar OSRM:", error);
+        return null;
+    }
+}
+
 async function calcularFrete() {
   const btn = document.getElementById('btn-gps');
   const msg = document.getElementById('frete-msg');
@@ -2102,72 +2125,90 @@ async function calcularFrete() {
     return;
   }
 
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      localCliente = { lat: position.coords.latitude, lng: position.coords.longitude };
-      const dist = calcularDistancia(COORD_LOJA.lat, COORD_LOJA.lng, localCliente.lat, localCliente.lng);
-      
-      // === TABELA DE FRETE DINÂMICA (configurada no admin) ===
-      // Faixas: [0-2], [2.1-3.9], [4-6], [6.1-7], ..., [19.1-20], >20 = a combinar
-      const LIMITES_KM = [2, 3.9, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
-      let freteIndex = -1;
-      for (let i = 0; i < LIMITES_KM.length; i++) {
-        if (dist <= LIMITES_KM[i]) { freteIndex = i; break; }
-      }
+  // Obtém coordenadas via Promise (permite usar await com OSRM abaixo)
+  let position;
+  try {
+    position = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 10000
+      });
+    });
+  } catch (err) {
+    msg.innerHTML = '<span style="color:#e74c3c">Não foi possível obter sua localização</span>';
+    boxErro.style.display = 'block';
+    btn.innerText = '📍 Tentar Novamente';
+    btn.disabled = false;
+    return;
+  }
 
-      if (freteIndex === -1) {
-        // Acima de 20km
-        freteCalculado = -1; // sentinela: a combinar
-        msg.innerHTML = `<span style="color:#e67e22">⚠️ Distância: ${dist.toFixed(1)}km — Frete <strong>a combinar</strong> pelo WhatsApp.</span>`;
-        msg.style.color = '#e67e22';
-        boxErro.style.display = 'none';
-        btn.innerText = '✅ Localização OK';
-        btn.disabled = false;
-        atualizarTotalCheckout();
-        return;
-      }
+  localCliente = { lat: position.coords.latitude, lng: position.coords.longitude };
 
-      // Verifica se a faixa está marcada como "A combinar" no admin
-      if (TABELA_FRETE && TABELA_FRETE[freteIndex] !== undefined && TABELA_FRETE[freteIndex].acombinar) {
-        freteCalculado = -1; // sentinela: a combinar
-        freteMotoboy   = 0;
-        msg.innerHTML = `<span style="color:#e67e22">⚠️ Distância: ${dist.toFixed(1)}km — Frete <strong>a combinar</strong> pelo WhatsApp.</span>`;
-        msg.style.color = '#e67e22';
-        boxErro.style.display = 'none';
-        btn.innerText = '✅ Localização OK';
-        btn.disabled = false;
-        atualizarTotalCheckout();
-        return;
-      }
+  // Tenta calcular pela ROTA real (OSRM), fallback para linha reta
+  msg.innerHTML = '<span style="color:#888">⏳ Calculando rota...</span>';
+  btn.innerText = 'Calculando rota...';
 
-      if (TABELA_FRETE && TABELA_FRETE[freteIndex] !== undefined) {
-        freteCalculado = TABELA_FRETE[freteIndex].loja || 0;
-        freteMotoboy   = TABELA_FRETE[freteIndex].motoboy || 0;
-      } else {
-        // Fallback se tabela não configurada: faixas padrão antigas
-        if (dist <= 3.3)       freteCalculado = 6000;
-        else if (dist <= 4.2)  freteCalculado = 12000;
-        else if (dist <= 5.2)  freteCalculado = 18000;
-        else if (dist <= 6.2)  freteCalculado = 24000;
-        else { const kmExtra = Math.ceil(dist - 6.2); freteCalculado = 24000 + (kmExtra * 3000); }
-        freteMotoboy = freteCalculado; // sem tabela, assume igual ao loja
-      }
-      
-      msg.innerHTML = `<span style="color:#27ae60">✅ Distância: ${dist.toFixed(1)}km - Frete: Gs ${freteCalculado.toLocaleString('es-PY')}</span>`;
-      msg.style.color = '#27ae60';
-      boxErro.style.display = 'none';
-      
-      btn.innerText = '✅ Localização OK';
-      btn.disabled = true;
-      atualizarTotalCheckout();
-    },
-    (error) => {
-      msg.innerHTML = '<span style="color:#e74c3c">Não foi possível obter sua localização</span>';
-      boxErro.style.display = 'block';
-      btn.innerText = '📍 Tentar Novamente';
-      btn.disabled = false;
-    }
-  );
+  let dist = await obterDistanciaPelaRota(localCliente.lat, localCliente.lng);
+  let usouRota = true;
+
+  if (dist === null) {
+    // OSRM indisponível — usa distância em linha reta como fallback
+    dist = calcularDistancia(COORD_LOJA.lat, COORD_LOJA.lng, localCliente.lat, localCliente.lng);
+    usouRota = false;
+    console.warn('⚠️ OSRM indisponível, usando distância em linha reta como fallback.');
+  }
+
+  // === TABELA DE FRETE DINÂMICA (configurada no admin) ===
+  const LIMITES_KM = [2, 3.9, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+  let freteIndex = -1;
+  for (let i = 0; i < LIMITES_KM.length; i++) {
+    if (dist <= LIMITES_KM[i]) { freteIndex = i; break; }
+  }
+
+  const nota = usouRota ? '🛣️ via rota' : '📏 linha reta*';
+
+  if (freteIndex === -1) {
+    // Acima de 20km — a combinar
+    freteCalculado = -1;
+    msg.innerHTML = `<span style="color:#e67e22">⚠️ Distância: ${dist.toFixed(1)}km (${nota}) — Frete <strong>a combinar</strong> pelo WhatsApp.</span>`;
+    boxErro.style.display = 'none';
+    btn.innerText = '✅ Localização OK';
+    btn.disabled = false;
+    atualizarTotalCheckout();
+    return;
+  }
+
+  // Verifica se a faixa está marcada como "A combinar" no admin
+  if (TABELA_FRETE && TABELA_FRETE[freteIndex] !== undefined && TABELA_FRETE[freteIndex].acombinar) {
+    freteCalculado = -1;
+    freteMotoboy   = 0;
+    msg.innerHTML = `<span style="color:#e67e22">⚠️ Distância: ${dist.toFixed(1)}km (${nota}) — Frete <strong>a combinar</strong> pelo WhatsApp.</span>`;
+    boxErro.style.display = 'none';
+    btn.innerText = '✅ Localização OK';
+    btn.disabled = false;
+    atualizarTotalCheckout();
+    return;
+  }
+
+  if (TABELA_FRETE && TABELA_FRETE[freteIndex] !== undefined) {
+    freteCalculado = TABELA_FRETE[freteIndex].loja || 0;
+    freteMotoboy   = TABELA_FRETE[freteIndex].motoboy || 0;
+  } else {
+    // Fallback se tabela não configurada: faixas padrão
+    if (dist <= 3.3)       freteCalculado = 6000;
+    else if (dist <= 4.2)  freteCalculado = 12000;
+    else if (dist <= 5.2)  freteCalculado = 18000;
+    else if (dist <= 6.2)  freteCalculado = 24000;
+    else { const kmExtra = Math.ceil(dist - 6.2); freteCalculado = 24000 + (kmExtra * 3000); }
+    freteMotoboy = freteCalculado;
+  }
+
+  const aviso = usouRota ? '' : ' <small style="color:#e67e22">(rota indisponível, estimativa)</small>';
+  msg.innerHTML = `<span style="color:#27ae60">✅ ${dist.toFixed(1)}km ${nota} — Frete: Gs ${freteCalculado.toLocaleString('es-PY')}</span>${aviso}`;
+  boxErro.style.display = 'none';
+  btn.innerText = '✅ Localização OK';
+  btn.disabled = true;
+  atualizarTotalCheckout();
 }
 
 function calcularDistancia(lat1, lon1, lat2, lon2) {

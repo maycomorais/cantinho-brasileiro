@@ -323,10 +323,18 @@
                 <input type="text" id="balcao-endereco" class="form-control"
                   placeholder="Cole o endereço ou link do Google Maps" />
                 <label class="pdv-label" style="margin-top:8px">🛵 Valor do Delivery (Gs)</label>
-                <input type="number" id="balcao-frete" class="form-control"
-                  placeholder="Ex: 8000" min="0" step="1000"
-                  style="border:2px solid #27ae60;"
-                  oninput="atualizarCarrinhoPDV()" />
+                <div style="display:flex;gap:6px;align-items:center">
+                  <input type="number" id="balcao-frete" class="form-control"
+                    placeholder="Ex: 8000" min="0" step="1000"
+                    style="border:2px solid #27ae60;flex:1;"
+                    oninput="atualizarCarrinhoPDV()" />
+                  <button id="btn-gps-pdv" onclick="calcularFretePDV()"
+                    title="Usar GPS do celular para calcular frete pela rota real"
+                    style="white-space:nowrap;padding:8px 10px;background:#1a7a2e;color:#fff;border:none;border-radius:8px;font-size:0.8rem;cursor:pointer;font-weight:600;">
+                    📍 Rota
+                  </button>
+                </div>
+                <div id="frete-msg-pdv" style="font-size:0.8rem;margin-top:4px;min-height:18px"></div>
               </div>
 
               <div class="pdv-lista-itens" id="pdv-lista"></div>

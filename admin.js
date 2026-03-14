@@ -4978,6 +4978,104 @@ let produtosCachePDV = [];
 // Cotação carregada das configurações (fallback 1100)
 let _cotacaoPDV = 1100;
 
+// ── Rota real via OSRM ────────────────────────────────────────────────────
+async function obterDistanciaPelaRota(latDestino, lngDestino) {
+  const origem  = `${COORD_LOJA.lng},${COORD_LOJA.lat}`;
+  const destino = `${lngDestino},${latDestino}`;
+  const url = `https://router.project-osrm.org/route/v1/driving/${origem};${destino}?overview=false`;
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.code === 'Ok') return d.routes[0].distance / 1000;
+    return null;
+  } catch (err) {
+    console.error('Erro OSRM (PDV):', err);
+    return null;
+  }
+}
+
+// ── Calcula frete no PDV usando GPS + rota real ───────────────────────────
+async function calcularFretePDV() {
+  const btn = document.getElementById('btn-gps-pdv');
+  const msg = document.getElementById('frete-msg-pdv');
+  const freteInput = document.getElementById('balcao-frete');
+
+  if (!navigator.geolocation) {
+    msg.innerHTML = '<span style="color:#e74c3c">GPS não disponível neste dispositivo</span>';
+    return;
+  }
+  btn.disabled = true;
+  btn.innerText = '⏳';
+  msg.innerHTML = '<span style="color:#888">Localizando...</span>';
+
+  let position;
+  try {
+    position = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true, timeout: 10000
+      })
+    );
+  } catch {
+    msg.innerHTML = '<span style="color:#e74c3c">Não foi possível obter localização</span>';
+    btn.disabled = false;
+    btn.innerText = '📍 Rota';
+    return;
+  }
+
+  msg.innerHTML = '<span style="color:#888">⏳ Calculando rota...</span>';
+  const { latitude: lat, longitude: lng } = position.coords;
+  let dist = await obterDistanciaPelaRota(lat, lng);
+  let usouRota = true;
+
+  if (dist === null) {
+    // Fallback: linha reta (Haversine)
+    const R = 6371;
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat - COORD_LOJA.lat);
+    const dLon = toRad(lng - COORD_LOJA.lng);
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(toRad(COORD_LOJA.lat)) * Math.cos(toRad(lat)) * Math.sin(dLon/2)**2;
+    dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    usouRota = false;
+    console.warn('OSRM indisponível no PDV, usando linha reta como fallback.');
+  }
+
+  const LIMITES_KM = [2, 3.9, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+  let freteIndex = -1;
+  for (let i = 0; i < LIMITES_KM.length; i++) {
+    if (dist <= LIMITES_KM[i]) { freteIndex = i; break; }
+  }
+
+  const nota = usouRota ? '🛣️ rota' : '📏 linha reta*';
+
+  if (freteIndex === -1 || (TABELA_FRETE_ADMIN && TABELA_FRETE_ADMIN[freteIndex]?.acombinar)) {
+    msg.innerHTML = `<span style="color:#e67e22">⚠️ ${dist.toFixed(1)}km (${nota}) — frete a combinar</span>`;
+    freteInput.value = '';
+    btn.disabled = false;
+    btn.innerText = '📍 Rota';
+    atualizarCarrinhoPDV();
+    return;
+  }
+
+  let frete = 0;
+  if (TABELA_FRETE_ADMIN && TABELA_FRETE_ADMIN[freteIndex] !== undefined) {
+    frete = TABELA_FRETE_ADMIN[freteIndex].loja || 0;
+  } else {
+    if (dist <= 3.3)      frete = 6000;
+    else if (dist <= 4.2) frete = 12000;
+    else if (dist <= 5.2) frete = 18000;
+    else if (dist <= 6.2) frete = 24000;
+    else frete = 24000 + Math.ceil(dist - 6.2) * 3000;
+  }
+
+  freteInput.value = frete;
+  const aviso = usouRota ? '' : ' <em style="color:#e67e22">(estimativa)</em>';
+  msg.innerHTML = `<span style="color:#27ae60">✅ ${dist.toFixed(1)}km ${nota} → Gs ${frete.toLocaleString('es-PY')}</span>${aviso}`;
+  btn.disabled = false;
+  btn.innerText = '📍 Rota';
+  atualizarCarrinhoPDV();
+}
+
 async function carregarPDV() {
   // PDV carrega TODOS os produtos ativos (incluindo somente_balcao e pausados não)
   const { data } = await supa
