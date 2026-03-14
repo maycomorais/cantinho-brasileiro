@@ -2345,29 +2345,21 @@ async function enviarZap() {
         : null,
     };
 
-    // ── Envia para a Edge Function (valida frete no servidor) ──────────────
-    const { data: fnData, error: fnError } = await supa.functions.invoke('validar-pedido', {
-      body: pedidoDb,
-    });
+    // ── Insere direto no banco (sem Edge Function) ────────────────────────
+    const { data: salvo, error: dbError } = await supa
+      .from('pedidos')
+      .insert([pedidoDb])
+      .select()
+      .single();
 
-    if (fnError || !fnData?.id) {
-      console.error('Erro ao salvar pedido:', fnError || fnData);
+    if (dbError || !salvo?.id) {
+      console.error('Erro ao salvar pedido:', dbError);
       alert('⚠️ Erro ao salvar pedido no sistema. Tente novamente.');
       return;
     }
 
-    pedidoDbId   = fnData.id;
-    numeroPedido = fnData.id;
-
-    // Se o servidor corrigiu o frete, atualiza variáveis locais para a mensagem
-    if (fnData.frete_cobrado_cliente !== undefined && fnData.frete_cobrado_cliente !== freteAplicado) {
-      console.warn('ℹ️ Frete ajustado pelo servidor:', fnData.frete_cobrado_cliente);
-      freteAplicado = fnData.frete_cobrado_cliente;
-    }
-    if (fnData.frete_a_combinar) {
-      freteACombinar = true;
-      freteAplicado  = 0;
-    }
+    pedidoDbId   = salvo.id;
+    numeroPedido = salvo.id;
 
     console.log('✅ Pedido salvo com ID:', pedidoDbId);
 
