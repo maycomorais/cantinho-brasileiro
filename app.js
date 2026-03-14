@@ -2399,7 +2399,7 @@ async function enviarZap() {
       msg += `📍 Maps: https://maps.google.com/?q=${localCliente.lat},${localCliente.lng}\n`;
       // Verifica se frete é "a combinar" (sentinela -1)
       if (freteACombinar) {
-        msg += `🛵 Delivery: 🤝 A COMBINAR (confirmar pelo WhatsApp)\n`;
+        msg += `🛵 Delivery: A COMBINAR via Bolt/Uber 🚗\n`;
       } else {
         const _freteReal = freteCalculado;
         const _fretePago = freteAplicado;
@@ -2411,7 +2411,7 @@ async function enviarZap() {
       }
     } else if (usouPlanoB) {
       msg += `📍 *Localização:* Enviarei aqui no WhatsApp 📎\n`;
-      msg += `🛵 *Delivery:* A COMBINAR\n`;
+      msg += `🛵 *Delivery:* A COMBINAR via Bolt/Uber 🚗\n`;
     }
     msg += `🏠 Ref: ${ref}\n`;
   }
@@ -2435,7 +2435,7 @@ async function enviarZap() {
   
   if (modoEntrega === 'delivery' && !usouPlanoB) {
     if (freteACombinar) {
-      msg += `Delivery: 🤝 A COMBINAR\n`;
+      msg += `Delivery: A COMBINAR via Bolt/Uber 🚗\n`;
       msg += `TOTAL (sem frete): Gs ${totalGeral.toLocaleString('es-PY')}\n`;
     } else {
       msg += `Delivery: Gs ${freteAplicado.toLocaleString('es-PY')}\n`;

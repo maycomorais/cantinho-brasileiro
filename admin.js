@@ -1009,9 +1009,11 @@ async function calcularFinanceiro() {
       const nomeMoto = p.motoboys?.nome || "Sem Motoboy";
       if (!motoMap[nomeMoto]) {
         motoMap[nomeMoto] = { qtd: 0, totalFrete: 0 };
-        // Adiciona combustível 1× por motoboy único no período
-        custoEntregas +=
-          typeof AJUDA_COMBUSTIVEL !== "undefined" ? AJUDA_COMBUSTIVEL : 20000;
+        // Adiciona combustível 1× por motoboy real (não conta para "Sem Motoboy")
+        if (nomeMoto !== "Sem Motoboy") {
+          custoEntregas +=
+            typeof AJUDA_COMBUSTIVEL !== "undefined" ? AJUDA_COMBUSTIVEL : 20000;
+        }
       }
       motoMap[nomeMoto].qtd++;
       motoMap[nomeMoto].totalFrete += custoMotoboy;
@@ -1079,15 +1081,19 @@ async function calcularFinanceiro() {
       for (const [nome, dados] of Object.entries(motoMap)) {
         const qtd = dados.qtd || 0;
         const totalFrete = dados.totalFrete || 0;
-        const combustivel =
-          typeof AJUDA_COMBUSTIVEL !== "undefined" ? AJUDA_COMBUSTIVEL : 20000;
-        const totalMoto = totalFrete + combustivel; // combustível: 1x por motoboy por dia
+        const combustivel = nome === "Sem Motoboy"
+          ? 0
+          : (typeof AJUDA_COMBUSTIVEL !== "undefined" ? AJUDA_COMBUSTIVEL : 20000);
+        const totalMoto = totalFrete + combustivel;
         const mediaFrete = qtd > 0 ? Math.round(totalFrete / qtd) : 0;
+        const descComb = combustivel > 0
+          ? ` + comb. Gs ${combustivel.toLocaleString("es-PY")}`
+          : ` (sem ajuda combustível)`;
         tbodyMoto.innerHTML += `
                     <tr>
                         <td data-label="Nome">${nome}</td>
                         <td data-label="Entregas">${qtd}</td>
-                        <td data-label="Taxa">Gs ${totalFrete.toLocaleString("es-PY")} em fretes (média Gs ${mediaFrete.toLocaleString("es-PY")}) + comb. Gs ${combustivel.toLocaleString("es-PY")}</td>
+                        <td data-label="Taxa">Gs ${totalFrete.toLocaleString("es-PY")} em fretes (média Gs ${mediaFrete.toLocaleString("es-PY")})${descComb}</td>
                         <td data-label="Total a Pagar"><strong>Gs ${totalMoto.toLocaleString("es-PY")}</strong></td>
                     </tr>`;
       }
