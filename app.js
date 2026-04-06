@@ -2086,27 +2086,43 @@ function _coletarMultiPagamento() {
   return partes;
 }
 
-async function obterDistanciaPelaRota(latDestino, lngDestino) {
-    const origem = `${COORD_LOJA.lng},${COORD_LOJA.lat}`; // OSRM usa Longitude,Latitude
-    const destino = `${lngDestino},${latDestino}`;
-    
-    // API pública do OSRM (perfil 'driving' para carros/motos)
-    const url = `https://router.project-osrm.org/route/v1/driving/${origem};${destino}?overview=false`;
+const _EDGE_CALCULAR_DISTANCIA =
+  'https://osddyplmzqoethbqbthe.supabase.co/functions/v1/calcular-distancia';
 
-    try {
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.code === "Ok") {
-            // A distância vem em metros. Convertemos para KM.
-            const distanciaMetros = data.routes[0].distance;
-            return distanciaMetros / 1000;
-        }
-        return null;
-    } catch (error) {
-        console.error("Erro ao consultar OSRM:", error);
-        return null;
+async function obterDistanciaPelaRota(latDestino, lngDestino) {
+  try {
+    const response = await fetch(_EDGE_CALCULAR_DISTANCIA, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': window._SUPABASE_KEY,           // reutiliza a anon key já carregada
+        'Authorization': `Bearer ${window._SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({ lat: latDestino, lng: lngDestino }),
+      signal: AbortSignal.timeout(10000),
+    });
+ 
+    if (!response.ok) {
+      console.warn('[obterDistanciaPelaRota] Edge Function HTTP', response.status);
+      return null;
     }
+ 
+    const data = await response.json();
+ 
+    if (typeof data.distancia_km !== 'number') {
+      console.warn('[obterDistanciaPelaRota] Resposta inesperada:', data);
+      return null;
+    }
+ 
+    const usouRota = data.metodo === 'osrm';
+    console.log(`[obterDistanciaPelaRota] ${data.distancia_km.toFixed(2)} km via ${data.metodo}`);
+ 
+    return { distancia_km: data.distancia_km, usouRota };
+ 
+  } catch (error) {
+    console.error('[obterDistanciaPelaRota] Falha ao chamar Edge Function:', error);
+    return null;
+  }
 }
 
 async function calcularFrete() {
@@ -2148,14 +2164,20 @@ async function calcularFrete() {
   msg.innerHTML = '<span style="color:#888">⏳ Calculando rota...</span>';
   btn.innerText = 'Calculando rota...';
 
-  let dist = await obterDistanciaPelaRota(localCliente.lat, localCliente.lng);
-  let usouRota = true;
-
-  if (dist === null) {
-    // OSRM indisponível — usa distância em linha reta como fallback
-    dist = calcularDistancia(COORD_LOJA.lat, COORD_LOJA.lng, localCliente.lat, localCliente.lng);
+  const resultadoRota = await obterDistanciaPelaRota(localCliente.lat, localCliente.lng);
+  let dist, usouRota;
+ 
+  if (resultadoRota !== null) {
+    dist      = resultadoRota.distancia_km;
+    usouRota  = resultadoRota.usouRota;
+    if (!usouRota) {
+      console.warn('⚠️ Edge Function usou Haversine (OSRM indisponível no servidor).');
+    }
+  } else {
+    // Edge Function completamente indisponível — último fallback local
+    dist     = calcularDistancia(COORD_LOJA.lat, COORD_LOJA.lng, localCliente.lat, localCliente.lng);
     usouRota = false;
-    console.warn('⚠️ OSRM indisponível, usando distância em linha reta como fallback.');
+    console.warn('⚠️ Edge Function indisponível. Usando Haversine local como último fallback.');
   }
 
   // === TABELA DE FRETE DINÂMICA (configurada no admin) ===

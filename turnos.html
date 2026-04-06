@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cantinho Brasileiro — Turnos</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="supabaseClient.js"></script>
+  <style>
+    :root {
+      --preparo-accent: #f59e0b;
+      --pronto-accent:  #22c55e;
+      --bg:             #0d1117;
+      --bg-col:         #0a0e14;
+      --card-bg:        #111820;
+      --border:         rgba(255,255,255,0.07);
+      --muted:          #6b7a8d;
+      --text:           #f0f4f8;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body { height:100%; background:var(--bg); font-family:'Rubik',sans-serif; color:var(--text); overflow:hidden; }
+
+    /* ── HEADER ─────────────────────────────── */
+    .header {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 24px; background:var(--bg); border-bottom:1px solid var(--border); height:64px;
+    }
+    .brand { font-size:1.3rem; font-weight:700; letter-spacing:0.5px; color:#fff; }
+    .brand span { color:var(--pronto-accent); }
+    .clock-time { font-size:2rem; font-weight:700; letter-spacing:2px; color:#fff; line-height:1; }
+    .clock-date { font-size:0.7rem; color:var(--muted); text-align:right; text-transform:uppercase; letter-spacing:1px; }
+
+    /* Status dot */
+    .status-row { display:flex; align-items:center; gap:6px; font-size:0.75rem; color:var(--muted); }
+    .status-dot { width:8px; height:8px; border-radius:50%; background:#22c55e; flex-shrink:0; }
+    .status-dot.offline { background:#ef4444; }
+
+    /* ── MAIN GRID ────────────────────────────── */
+    .main { display:grid; grid-template-columns:1fr 1fr; height:calc(100vh - 64px - 40px); }
+    .col { display:flex; flex-direction:column; overflow:hidden; }
+    .col-preparo { background:var(--bg-col); border-right:1px solid var(--border); }
+    .col-pronto  { background:var(--bg-col); }
+
+    .col-header {
+      padding:16px 24px 12px; display:flex; align-items:center; gap:12px;
+      border-bottom:2px solid var(--border);
+    }
+    .col-preparo .col-header { border-bottom-color:var(--preparo-accent); }
+    .col-pronto  .col-header { border-bottom-color:var(--pronto-accent); }
+
+    .col-icon { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.1rem; }
+    .col-preparo .col-icon { background:rgba(245,158,11,0.12); }
+    .col-pronto  .col-icon { background:rgba(34,197,94,0.12); }
+
+    .col-title { font-weight:800; font-size:1.3rem; letter-spacing:0.5px; text-transform:uppercase; }
+    .col-preparo .col-title { color:var(--preparo-accent); }
+    .col-pronto  .col-title { color:var(--pronto-accent); }
+    .col-subtitle { font-size:0.75rem; color:var(--muted); margin-top:1px; }
+
+    .col-count {
+      margin-left:auto; width:34px; height:34px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1rem;
+    }
+    .col-preparo .col-count { background:rgba(245,158,11,0.18); color:var(--preparo-accent); }
+    .col-pronto  .col-count { background:rgba(34,197,94,0.18); color:var(--pronto-accent); }
+
+    /* ── CARDS GRID ────────────────────────────── */
+    .num-grid {
+      flex:1; padding:18px 20px;
+      display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+      gap:12px; align-content:start; overflow-y:auto;
+    }
+    .num-grid::-webkit-scrollbar { width:4px; }
+    .num-grid::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+
+    .num-card {
+      border-radius:14px; padding:16px 12px;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:4px; text-align:center; min-height:100px; position:relative; overflow:hidden;
+      animation:cardIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    @keyframes cardIn { from{opacity:0;transform:scale(0.8)} to{opacity:1;transform:scale(1)} }
+
+    .col-preparo .num-card {
+      background:var(--card-bg);
+      border:1px solid rgba(245,158,11,0.25);
+    }
+    .col-pronto .num-card {
+      background:var(--card-bg);
+      border:1px solid rgba(34,197,94,0.3);
+    }
+    .col-pronto .num-card::before {
+      content:''; position:absolute; inset:0; border-radius:14px;
+      border:1.5px solid rgba(34,197,94,0.4);
+      animation:pulse 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100%{opacity:0.5;transform:scale(1)}
+      50%{opacity:0;transform:scale(1.06)}
+    }
+
+    .num-nome { font-weight:900; font-size:1.8rem; line-height:1.1; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .col-preparo .num-nome { color:var(--preparo-accent); }
+    .col-pronto  .num-nome { color:var(--pronto-accent); }
+
+    .num-id { font-size:0.85rem; font-weight:700; color:var(--muted); }
+
+    .num-tipo { font-size:0.6rem; padding:2px 8px; border-radius:20px; font-weight:700; margin-top:2px; }
+    .tipo-balcao   { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .tipo-retirada { background:rgba(168,85,247,0.15);  color:#c084fc; }
+    .tipo-local    { background:rgba(251,191,36,0.15); color:#fbbf24; }
+
+    /* ── EMPTY STATE ───────────────────────────── */
+    .col-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:100%; color:var(--muted); font-size:0.9rem; }
+    .empty-icon { font-size:2.5rem; opacity:0.4; }
+
+    /* ── FOOTER ─────────────────────────────────── */
+    .footer {
+      height:40px; background:var(--bg); border-top:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between; padding:0 24px;
+    }
+    .footer-aviso { font-size:0.72rem; color:var(--muted); }
+
+    /* ── FLASH ───────────────────────────────────── */
+    #flash {
+      position:fixed; inset:0; background:rgba(34,197,94,0.15);
+      pointer-events:none; opacity:0; z-index:9999;
+      transition:opacity 0.1s;
+    }
+    #flash.active { animation:flashAnim 0.6s ease-out forwards; }
+    @keyframes flashAnim { 0%{opacity:1} 100%{opacity:0} }
+  </style>
+</head>
+<body>
+<div id="flash"></div>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <div class="brand">CANTINHO <span>BRASILEIRO</span></div>
+    <div class="status-row">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-txt">Conectando...</span>
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div class="clock-time" id="clock-time">--:--</div>
+    <div class="clock-date" id="clock-date"></div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- EM PREPARO -->
+  <div class="col col-preparo">
+    <div class="col-header">
+      <div class="col-icon">🍳</div>
+      <div>
+        <div class="col-title">Em Preparo</div>
+        <div class="col-subtitle">Pedidos na cozinha</div>
+      </div>
+      <div class="col-count" id="count-preparo">0</div>
+    </div>
+    <div class="num-grid" id="grid-preparo">
+      <div class="col-empty"><div class="empty-icon">🍽️</div><p>Nenhum pedido em preparo</p></div>
+    </div>
+  </div>
+
+  <!-- PRONTOS -->
+  <div class="col col-pronto">
+    <div class="col-header">
+      <div class="col-icon">✅</div>
+      <div>
+        <div class="col-title">Pronto!</div>
+        <div class="col-subtitle">Aguardando retirada</div>
+      </div>
+      <div class="col-count" id="count-pronto">0</div>
+    </div>
+    <div class="num-grid" id="grid-pronto">
+      <div class="col-empty"><div class="empty-icon">🎉</div><p>Nenhum pedido pronto</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div class="footer-aviso" id="footer-aviso">Cantinho Brasileiro 🍕</div>
+  <div class="status-row">
+    <div class="status-dot" id="status-dot2"></div>
+    <span id="status-txt2" style="font-size:0.7rem;color:var(--muted)">—</span>
+  </div>
+</div>
+
+<script>
+// ── Relógio ─────────────────────────────────────────────────────────
+function atualizarRelogio() {
+  const agora = new Date();
+  const h = String(agora.getHours()).padStart(2,'0');
+  const m = String(agora.getMinutes()).padStart(2,'0');
+  document.getElementById('clock-time').textContent = h + ':' + m;
+  const dias = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  document.getElementById('clock-date').textContent =
+    dias[agora.getDay()] + ', ' + agora.getDate() + ' ' + meses[agora.getMonth()];
+}
+atualizarRelogio();
+setInterval(atualizarRelogio, 10000);
+
+// ── Status dot ──────────────────────────────────────────────────────
+function setOnline(ok) {
+  ['status-dot','status-dot2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.className = 'status-dot' + (ok ? '' : ' offline');
+  });
+  const txt = ok ? 'Conectado' : 'Reconectando...';
+  ['status-txt','status-txt2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  });
+}
+
+// ── Card ────────────────────────────────────────────────────────────
+function _nomeDisplay(p) {
+  const raw = (p.cliente_nome || '').trim();
+  const limpo = raw.replace(/^MESA\s+\d+\s*[-–]\s*/i,'').replace(/^BALC[ÃA]O\s*[-–]\s*/i,'').trim();
+  if (!limpo || /^cliente$/i.test(limpo)) return null;
+  return limpo;
+}
+
+function _card(p) {
+  const nome = _nomeDisplay(p);
+  const principal  = nome ? nome         : ('#' + p.id);
+  const secundario = nome ? ('#' + p.id) : '';
+  const tipoLabel = { balcao:'Balcão', retirada:'Retirada', local:'Local' }[p.tipo_entrega] || 'Balcão';
+  const tipoCls   = { balcao:'tipo-balcao', retirada:'tipo-retirada', local:'tipo-local' }[p.tipo_entrega] || 'tipo-balcao';
+  return `<div class="num-card">
+    <div class="num-nome">${principal}</div>
+    ${secundario ? `<div class="num-id">${secundario}</div>` : ''}
+    <div class="num-tipo ${tipoCls}">${tipoLabel}</div>
+  </div>`;
+}
+
+// ── Dados ────────────────────────────────────────────────────────────
+const TIPOS_PAINEL = ['balcao','retirada','local'];
+let _prontoAnterior = new Set();
+
+async function carregarPedidos() {
+  if (!window.supa) return;
+  try {
+    const { data } = await window.supa
+      .from('pedidos')
+      .select('id, status, cliente_nome, tipo_entrega')
+      .in('status', ['em_preparo','pronto_entrega'])
+      .in('tipo_entrega', TIPOS_PAINEL)
+      .order('id', { ascending: true });
+
+    renderizarPedidos(data || []);
+    setOnline(true);
+  } catch(e) {
+    console.error('Turnos:', e);
+    setOnline(false);
+  }
+}
+
+function renderizarPedidos(pedidos) {
+  const preparo = pedidos.filter(p => p.status === 'em_preparo');
+  const prontos  = pedidos.filter(p => p.status === 'pronto_entrega');
+
+  // Flash + som ao entrar novo pronto
+  const prontoIds = new Set(prontos.map(p => p.id));
+  let temNovoPronto = false;
+  prontoIds.forEach(id => { if (!_prontoAnterior.has(id)) temNovoPronto = true; });
+  _prontoAnterior = prontoIds;
+
+  if (temNovoPronto) {
+    const flash = document.getElementById('flash');
+    flash.classList.remove('active');
+    void flash.offsetWidth;
+    flash.classList.add('active');
+    try { new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play(); } catch(_){}
+  }
+
+  // Em Preparo
+  document.getElementById('count-preparo').textContent = preparo.length;
+  document.getElementById('grid-preparo').innerHTML = preparo.length
+    ? preparo.map(_card).join('')
+    : '<div class="col-empty"><div class="empty-icon">🍽️</div><p>Nenhum pedido em preparo</p></div>';
+
+  // Prontos
+  document.getElementById('count-pronto').textContent = prontos.length;
+  document.getElementById('grid-pronto').innerHTML = prontos.length
+    ? prontos.map(_card).join('')
+    : '<div class="col-empty"><div class="empty-icon">🎉</div><p>Nenhum pedido pronto</p></div>';
+}
+
+// ── Realtime com reconexão automática ────────────────────────────────
+let _channel = null;
+
+function iniciarRealtime() {
+  if (!window.supa) return;
+  if (_channel) { window.supa.removeChannel(_channel); _channel = null; }
+  _channel = window.supa
+    .channel('turnos-' + Date.now())
+    .on('postgres_changes', { event:'*', schema:'public', table:'pedidos' }, () => carregarPedidos())
+    .subscribe(status => {
+      setOnline(status === 'SUBSCRIBED');
+      if (['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)) {
+        setTimeout(iniciarRealtime, 5000);
+      }
+    });
+}
+
+// ── Configurações da loja ────────────────────────────────────────────
+async function carregarConfig() {
+  try {
+    const { data } = await window.supa.from('configuracoes').select('nome_restaurante,aviso_delivery').maybeSingle();
+    if (!data) return;
+    if (data.nome_restaurante) document.title = data.nome_restaurante + ' — Turnos';
+    if (data.aviso_delivery)   document.getElementById('footer-aviso').textContent = data.aviso_delivery;
+  } catch(e) {}
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
+let _tentativas = 0;
+function _aguardarSupa() {
+  if (window.supa) {
+    carregarConfig();
+    carregarPedidos();
+    iniciarRealtime();
+    setInterval(carregarPedidos, 5000);
+    return;
+  }
+  if (++_tentativas < 20) setTimeout(_aguardarSupa, 300);
+  else { console.warn('Turnos: supa não disponível'); setOnline(false); }
+}
+_aguardarSupa();
+</script>
+</body>
+</html>

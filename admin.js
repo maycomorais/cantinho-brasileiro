@@ -170,6 +170,7 @@ function showTab(tabId, event) {
       carregarCupons();
     }
   }
+  if (tabId === "inventario") carregarInventario();
 }
 
 function showSubTab(subId) {
@@ -2076,6 +2077,14 @@ document.querySelectorAll(".shake-sabor-row").forEach((row) => {
       if (preparoOpcoes.length > 0) configFinal.preparo_opcoes = preparoOpcoes;
     }
 
+    if (tipo === "kg") {
+      const precoKg = parseFloat(document.getElementById("prod-preco-kg")?.value) || 0;
+      if (!precoKg) { alert("⚠️ Informe o preço por kg!"); btn.disabled = false; return; }
+      configFinal = { __tipo: "kg", preco_kg: precoKg };
+      // Preço base = preço/kg (referência para PDV)
+      document.getElementById("prod-preco").value = precoKg;
+    }
+
     // Variações de sabor
     if (tipo === "variacoes") {
       const variacoes = [];
@@ -2224,6 +2233,11 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
         // Tipo almoco legado: tratar como simples (builder removido)
         tipo = "padrao";
       }
+      // Tipo Kg
+      if (tipo === "kg" && cfg.preco_kg) {
+        const pkgEl = document.getElementById("prod-preco-kg");
+        if (pkgEl) pkgEl.value = cfg.preco_kg;
+      }
       // Variações de sabor
       if (tipo === "variacoes" && cfg.variacoes) {
         document.getElementById("variacoes-lista").innerHTML = "";
@@ -2279,17 +2293,18 @@ async function abrirModalProduto(produto = null, tipoInicial = null) {
 
 // Mapa: tipo semântico → qual builder exibir
 const BUILDER_MAP = {
-  padrao: "",
-  bebida: "",
-  lanche: "",
-  combo: "",
-  sorvete: "",
-  pizza: "builder-pizza",
+  padrao:   "",
+  bebida:   "",
+  lanche:   "",
+  combo:    "",
+  sorvete:  "",
+  pizza:    "builder-pizza",
   montavel: "builder-montavel",
-  acai: "builder-montavel",
-  shake: "builder-shake",
-  suco: "builder-montavel",
-  variacoes: "builder-variacoes",
+  acai:     "builder-montavel",
+  shake:    "builder-shake",
+  suco:     "builder-montavel",
+  variacoes:"builder-variacoes",
+  kg:       "builder-kg",          // ← NOVO
 };
 const BUILDER_HINTS = {
   acai: '🍇 Crie etapas: "Tamanho", "Complementos", "Frutas", "Coberturas".',
@@ -2310,6 +2325,7 @@ const _TIPO_BADGE_LABELS = {
   almoco: "🍽️ Prato",
   combo: "⭐ Combo",
   variacoes: "🎨 Variações",
+  kg: "⚖️ Venda Kg",
 };
 
 function selecionarTipoBuilder(tipo) {
@@ -2332,6 +2348,10 @@ function selecionarTipoBuilder(tipo) {
   // Atualiza badge de tipo no modal
   const badge = document.getElementById("modal-tipo-badge");
   if (badge) badge.textContent = _TIPO_BADGE_LABELS[tipo] || tipo;
+
+  // Oculta campo de preço principal para KG (preço fica no builder)
+  const precoBox = document.getElementById("box-prod-preco");
+  if (precoBox) precoBox.style.display = tipo === "kg" ? "none" : "";
 
   const hintEl = document.getElementById("builder-tipo-hint");
   if (hintEl) {
@@ -7651,5 +7671,207 @@ if (typeof fecharModal !== "function") {
     if (modal) {
       modal.style.display = "none";
     }
+  }
+}
+
+let _inventarioItems = [];
+ 
+async function carregarInventario() {
+  if (perfilUsuario !== "dono" && perfilUsuario !== "gerente" && perfilUsuario !== "adminMaster") return;
+  const container = document.getElementById("inventario-lista");
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:30px;color:#aaa"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+ 
+  const { data, error } = await supa
+    .from("inventario")
+    .select("id, nome, quantidade, unidade, quantidade_minima, observacoes, produto_id, perecivel, data_validade")
+    .order("nome");
+ 
+  _inventarioItems = error ? [] : (data || []);
+  _renderInventarioCards();
+  _verificarAlertasEstoque();
+}
+ 
+function _renderInventarioCards() {
+  const container = document.getElementById("inventario-lista");
+  if (!container) return;
+  if (!_inventarioItems.length) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:#aaa">Nenhum item no estoque. Clique em "+ Novo Item".</div>';
+    return;
+  }
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  container.innerHTML = _inventarioItems.map(item => {
+    const qtd = item.quantidade ?? 0;
+    const min = item.quantidade_minima ?? 0;
+    let bg = "", badgeStyle = "", badgeText = "";
+    if (qtd <= 0) {
+      bg = "#fff5f5"; badgeStyle = "background:#fee2e2;color:#dc2626"; badgeText = "🔴 Zerado";
+    } else if (min > 0 && qtd <= min) {
+      bg = "#fffbeb"; badgeStyle = "background:#fef3c7;color:#d97706"; badgeText = "⚠️ Baixo";
+    } else {
+      badgeStyle = "background:#dcfce7;color:#16a34a"; badgeText = "✅ OK";
+    }
+    let validadeHtml = "";
+    if (item.perecivel && item.data_validade) {
+      const val = new Date(item.data_validade); val.setHours(0,0,0,0);
+      const dias = Math.ceil((val - hoje) / 86400000);
+      if (dias < 0) { validadeHtml = `<span style="font-size:0.72rem;color:#dc2626;font-weight:600">🚫 VENCIDO</span>`; bg = "#fff0f0"; }
+      else if (dias <= 7) { validadeHtml = `<span style="font-size:0.72rem;color:#d97706;font-weight:600">⏰ Vence em ${dias}d</span>`; if (!bg) bg = "#fffbeb"; }
+      else validadeHtml = `<span style="font-size:0.72rem;color:#888">📅 Val: ${new Date(item.data_validade).toLocaleDateString("pt-BR")}</span>`;
+    }
+    const nEsc = (item.nome || "").replace(/'/g, "\\'");
+    const qtdColor = qtd <= 0 ? "#dc2626" : (min > 0 && qtd <= min ? "#d97706" : "#16a34a");
+    return `<div class="inv-card" style="background:${bg || '#fff'};border:1px solid #eee;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px"
+      data-id="${item.id}" data-nome="${(item.nome||'').replace(/"/g,'&quot;')}"
+      data-status="${qtd<=0?'zerado':(min>0&&qtd<=min?'baixo':'ok')}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div>
+          <div style="font-weight:700;font-size:0.95rem">${item.nome||''}${item.perecivel?' 🥛':''}</div>
+          ${validadeHtml ? `<div style="margin-top:2px">${validadeHtml}</div>` : ''}
+          ${item.observacoes ? `<div style="font-size:0.78rem;color:#888;margin-top:2px">${item.observacoes}</div>` : ''}
+        </div>
+        <span style="font-size:0.72rem;padding:3px 10px;border-radius:20px;white-space:nowrap;font-weight:700;${badgeStyle}">${badgeText}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:0.82rem;color:#666">Unid: <strong>${item.unidade||'un'}</strong>${min>0?` · Mín: ${min}`:''}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button onclick="ajusteRapido(${item.id},'sub','${nEsc}',${qtd})"
+            style="width:28px;height:28px;border-radius:50%;border:1px solid #ddd;background:#f5f5f5;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center">−</button>
+          <span style="font-weight:700;font-size:1.1rem;color:${qtdColor};min-width:40px;text-align:center">${qtd}</span>
+          <button onclick="ajusteRapido(${item.id},'add','${nEsc}',${qtd})"
+            style="width:28px;height:28px;border-radius:50%;border:1px solid #ddd;background:#f5f5f5;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center">+</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="abrirModalInventario(${item.id})"
+          style="flex:1;padding:6px;background:#f59e0b;color:#fff;border:none;border-radius:8px;font-size:0.8rem;cursor:pointer;font-weight:600">✏️ Editar</button>
+        <button onclick="excluirInventario(${item.id})"
+          style="padding:6px 10px;background:#fee2e2;color:#dc2626;border:none;border-radius:8px;font-size:0.8rem;cursor:pointer">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+ 
+function filtrarInventario() {
+  const busca  = (document.getElementById("inv-busca")?.value || "").toLowerCase();
+  const status = document.getElementById("inv-filtro-status")?.value || "";
+  document.querySelectorAll("#inventario-lista .inv-card[data-id]").forEach(card => {
+    const m1 = !busca  || (card.dataset.nome   || "").toLowerCase().includes(busca);
+    const m2 = !status || card.dataset.status === status;
+    card.style.display = (m1 && m2) ? "" : "none";
+  });
+}
+ 
+function _verificarAlertasEstoque() {
+  const alertas = _inventarioItems.filter(i => (i.quantidade ?? 0) <= 0 || ((i.quantidade_minima ?? 0) > 0 && (i.quantidade ?? 0) <= i.quantidade_minima));
+  const badge = document.getElementById("inv-alerta-badge");
+  if (badge) {
+    badge.textContent = alertas.length ? alertas.length : "";
+    badge.style.display = alertas.length ? "inline-flex" : "none";
+  }
+}
+ 
+function abrirModalInventario(id = null) {
+  const item = id ? _inventarioItems.find(i => i.id === id) : null;
+  const modal = document.getElementById("modal-inventario");
+  if (!modal) return;
+  document.getElementById("inv-id").value           = item?.id || "";
+  document.getElementById("inv-nome").value         = item?.nome || "";
+  document.getElementById("inv-quantidade").value   = item?.quantidade ?? 0;
+  document.getElementById("inv-unidade").value      = item?.unidade || "un";
+  document.getElementById("inv-qtd-min").value      = item?.quantidade_minima ?? 0;
+  document.getElementById("inv-observacoes").value  = item?.observacoes || "";
+  document.getElementById("inv-perecivel").checked  = item?.perecivel || false;
+  document.getElementById("inv-validade").value     = item?.data_validade || "";
+  document.getElementById("inv-validade-row").style.display = (item?.perecivel) ? "" : "none";
+  modal.style.display = "flex";
+}
+ 
+function fecharModalInventario() {
+  const modal = document.getElementById("modal-inventario");
+  if (modal) modal.style.display = "none";
+}
+ 
+async function salvarInventario() {
+  const btn = document.querySelector("#modal-inventario .btn-primary");
+  if (btn) btn.disabled = true;
+  const id       = document.getElementById("inv-id").value;
+  const nome     = document.getElementById("inv-nome").value.trim();
+  const qtd      = parseFloat(document.getElementById("inv-quantidade").value) || 0;
+  const unidade  = document.getElementById("inv-unidade").value;
+  const qtdMin   = parseFloat(document.getElementById("inv-qtd-min").value) || 0;
+  const obs      = document.getElementById("inv-observacoes").value.trim();
+  const per      = document.getElementById("inv-perecivel").checked;
+  const val      = document.getElementById("inv-validade").value || null;
+ 
+  if (!nome) { alert("⚠️ Informe o nome do item!"); if (btn) btn.disabled = false; return; }
+ 
+  const payload = { nome, quantidade: qtd, unidade, quantidade_minima: qtdMin, observacoes: obs || null, perecivel: per, data_validade: val };
+ 
+  let error;
+  if (id) {
+    ({ error } = await supa.from("inventario").update(payload).eq("id", id));
+  } else {
+    ({ error } = await supa.from("inventario").insert([payload]));
+  }
+ 
+  if (error) { alert("Erro ao salvar: " + error.message); }
+  else { fecharModalInventario(); await carregarInventario(); }
+  if (btn) btn.disabled = false;
+}
+ 
+async function excluirInventario(id) {
+  if (!confirm("Excluir este item do estoque?")) return;
+  const { error } = await supa.from("inventario").delete().eq("id", id);
+  if (error) alert("Erro: " + error.message);
+  else await carregarInventario();
+}
+ 
+async function ajusteRapido(id, tipo, nome, qtdAtual) {
+  const delta = tipo === "add" ? 1 : -1;
+  const novaQtd = Math.max(0, (parseFloat(qtdAtual) || 0) + delta);
+  const { error } = await supa.from("inventario").update({ quantidade: novaQtd }).eq("id", id);
+  if (!error) {
+    await supa.from("inventario_movimentos").insert([{
+      inventario_id: id, tipo: tipo === "add" ? "entrada" : "saida",
+      quantidade: 1, motivo: "Ajuste rápido"
+    }]);
+    await carregarInventario();
+  }
+}
+ 
+// Desconta estoque quando pedido entra em preparo
+async function _descontarEstoqueVenda(pedidoId) {
+  try {
+    const { data: pedido } = await supa.from("pedidos").select("itens").eq("id", pedidoId).single();
+    if (!pedido?.itens?.length) return;
+ 
+    const nomes = [...new Set(pedido.itens.map(i => (i.nome || i.n || "").trim()).filter(Boolean))];
+    if (!nomes.length) return;
+ 
+    const { data: prods } = await supa.from("produtos").select("nome, inventario_id").in("nome", nomes).not("inventario_id","is",null);
+    if (!prods?.length) return;
+ 
+    const descontos = {};
+    for (const item of pedido.itens) {
+      const n = (item.nome || item.n || "").trim();
+      const q = parseInt(item.qtd || item.q || 1);
+      const prod = prods.find(p => p.nome === n);
+      if (prod?.inventario_id) descontos[prod.inventario_id] = (descontos[prod.inventario_id] || 0) + q;
+    }
+ 
+    for (const [invId, qtd] of Object.entries(descontos)) {
+      const { data: est } = await supa.from("inventario").select("quantidade").eq("id", invId).single();
+      if (!est) continue;
+      const nova = Math.max(0, (est.quantidade || 0) - qtd);
+      await supa.from("inventario").update({ quantidade: nova }).eq("id", invId);
+      await supa.from("inventario_movimentos").insert([{
+        inventario_id: parseInt(invId), tipo: "saida", quantidade: qtd,
+        motivo: `Venda pedido #${pedidoId}`
+      }]);
+    }
+    console.log(`✅ Estoque descontado: pedido #${pedidoId}`);
+  } catch(e) {
+    console.warn("Estoque desconto:", e.message);
   }
 }
