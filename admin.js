@@ -2020,12 +2020,14 @@ document.querySelectorAll(".shake-sabor-row").forEach((row) => {
       });
       const sabores = [];
       document.querySelectorAll(".pizza-sabor-row").forEach((row) => {
+        const ativoEl = row.querySelector('[data-f="sativo"]');
         sabores.push({
-          nome: row.querySelector('[data-f="snome"]').value,
-          desc: row.querySelector('[data-f="sdesc"]')?.value?.trim() || "",
-          tipo: row.querySelector('[data-f="stipo"]').value,
-          img: row.querySelector('[data-f="simg"]')?.value || "",
+          nome:  row.querySelector('[data-f="snome"]').value,
+          desc:  row.querySelector('[data-f="sdesc"]')?.value?.trim() || "",
+          tipo:  row.querySelector('[data-f="stipo"]').value,
+          img:   row.querySelector('[data-f="simg"]')?.value || "",
           preco: 0,
+          ativo: ativoEl ? ativoEl.checked : true,   // ← NOVO
         });
       });
       const bordas = [];
@@ -2535,29 +2537,76 @@ function addPizzaSabor(dados = {}) {
   const lista = document.getElementById("pizza-sabores-lista");
   const ph = lista.querySelector("p");
   if (ph) ph.remove();
+ 
   const row = document.createElement("div");
   row.className = "pizza-sabor-row";
-  const imgSrc = dados.img || "";
+ 
+  const imgSrc   = dados.img  || "";
+  const pausado  = dados.ativo === false;
+ 
+  // Visual da linha muda conforme status
+  row.style.cssText = `
+    border-radius: 10px;
+    border: 1px solid ${pausado ? "#fca5a5" : "#e5e7eb"};
+    overflow: hidden;
+    margin-bottom: 2px;
+    opacity: ${pausado ? "0.65" : "1"};
+    transition: opacity 0.15s, border-color 0.15s;
+  `;
+ 
   row.innerHTML = `
     <div class="pizza-sabor-main">
-      <input data-f="snome" class="form-control" value="${dados.nome || ""}" placeholder="Nome do sabor (ex: Frango Catupiry)">
+      <input data-f="snome" class="form-control"
+        value="${dados.nome || ""}"
+        placeholder="Nome do sabor (ex: Frango Catupiry)">
       <select data-f="stipo" class="form-control pizza-sabor-tipo">
         <option value="Tradicional" ${!dados.tipo || dados.tipo === "Tradicional" || dados.tipo === "Salgada" ? "selected" : ""}>🍕 Tradicional</option>
-        <option value="Especial" ${dados.tipo === "Especial" ? "selected" : ""}>⭐ Especial</option>
-        <option value="Doce" ${dados.tipo === "Doce" ? "selected" : ""}>🍫 Doce</option>
+        <option value="Especial"    ${dados.tipo === "Especial" ? "selected" : ""}>⭐ Especial</option>
+        <option value="Doce"        ${dados.tipo === "Doce"     ? "selected" : ""}>🍫 Doce</option>
       </select>
-      <button class="btn btn-sm btn-danger" onclick="this.closest('.pizza-sabor-row').remove()" title="Remover">✕</button>
+ 
+      <!-- Toggle disponível/pausado -->
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.82rem;
+                    color:${pausado ? "#c0392b" : "#16a34a"};
+                    background:${pausado ? "#fff5f5" : "#f0fdf4"};
+                    border:1px solid ${pausado ? "#fca5a5" : "#bbf7d0"};
+                    border-radius:6px;padding:4px 10px;white-space:nowrap;flex-shrink:0"
+            title="Clique para pausar/reativar este sabor">
+        <input data-f="sativo" type="checkbox" ${!pausado ? "checked" : ""}
+          onchange="
+            const p = !this.checked;
+            const row = this.closest('.pizza-sabor-row');
+            row.style.opacity      = p ? '0.65' : '1';
+            row.style.borderColor  = p ? '#fca5a5' : '#e5e7eb';
+            this.parentElement.style.background   = p ? '#fff5f5' : '#f0fdf4';
+            this.parentElement.style.borderColor  = p ? '#fca5a5' : '#bbf7d0';
+            this.parentElement.style.color        = p ? '#c0392b' : '#16a34a';
+            this.parentElement.lastChild.textContent = p ? ' Pausado' : ' Disponível';
+          ">
+        <span>${pausado ? " Pausado" : " Disponível"}</span>
+      </label>
+ 
+      <button class="btn btn-sm btn-danger"
+        onclick="this.closest('.pizza-sabor-row').remove()"
+        title="Remover sabor">✕</button>
     </div>
-    <textarea data-f="sdesc" class="form-control pizza-sabor-desc-input" rows="2" placeholder="Descrição do sabor">${dados.desc || ""}</textarea>
+ 
+    <textarea data-f="sdesc" class="form-control pizza-sabor-desc-input"
+      rows="2" placeholder="Descrição do sabor">${dados.desc || ""}</textarea>
+ 
     <div class="pizza-sabor-img-row">
-      <img class="pizza-sabor-img-preview" src="${imgSrc}" style="display:${imgSrc ? "block" : "none"}" alt="">
-      <input data-f="simg" type="text" class="form-control" value="${imgSrc}" placeholder="URL da imagem (ou clique 📷)">
+      <img class="pizza-sabor-img-preview"
+        src="${imgSrc}" style="display:${imgSrc ? "block" : "none"}" alt="">
+      <input data-f="simg" type="text" class="form-control"
+        value="${imgSrc}" placeholder="URL da imagem (ou clique 📷)">
       <label class="pizza-sabor-upload-label">
         <span class="pizza-sabor-upload-btn">📷</span>
-        <input type="file" accept="image/*" style="display:none" onchange="uploadSaborImagem(this, this.closest('.pizza-sabor-row'))">
+        <input type="file" accept="image/*" style="display:none"
+          onchange="uploadSaborImagem(this, this.closest('.pizza-sabor-row'))">
       </label>
     </div>
   `;
+ 
   lista.appendChild(row);
 }
 

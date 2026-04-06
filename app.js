@@ -971,7 +971,9 @@ function _selecionarDivisao(n) {
   const p = _pizzaConfig.p;
 
   // Filtra sabores pelo tipo (Salgada/Doce) se definido
-  const saboresFiltrados = (p.sabores || []).filter((s) => !s.tipo || !p.tipos || p.tipos.length <= 1 || true);
+  const saboresFiltrados = (p.sabores || []).filter(
+    (s) => s.ativo !== false   // exclui sabores pausados
+  );
 
   // Gera HTML para escolha de cada slot de sabor
   let html = `<section class="pizza-step">
