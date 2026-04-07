@@ -7924,3 +7924,213 @@ async function _descontarEstoqueVenda(pedidoId) {
     console.warn("Estoque desconto:", e.message);
   }
 }
+
+async function baixaMassaMesa() {
+  // 1. Busca pedidos abertos dos tipos presenciais
+  const { data: pedidos, error } = await supa
+    .from("pedidos")
+    .select("id, tipo_entrega, status, cliente_nome, total_geral")
+    .in("tipo_entrega", ["balcao", "retirada", "local"])
+    .not("status", "in", '("entregue","cancelado")')
+    .order("id", { ascending: true });
+ 
+  if (error) { alert("Erro ao buscar pedidos: " + error.message); return; }
+  if (!pedidos?.length) { alert("✅ Nenhum pedido aberto de balcão/retirada/local."); return; }
+ 
+  // 2. Monta resumo para confirmação
+  const total = pedidos.reduce((s, p) => s + (p.total_geral || 0), 0);
+  const listaHtml = pedidos.slice(0, 15).map(p =>
+    `<tr>
+      <td style="padding:4px 8px">#${p.id}</td>
+      <td style="padding:4px 8px">${_labelTipo(p.tipo_entrega)}</td>
+      <td style="padding:4px 8px">${(p.cliente_nome || '—').substring(0, 22)}</td>
+      <td style="padding:4px 8px;text-align:right;font-weight:600">Gs ${(p.total_geral || 0).toLocaleString('es-PY')}</td>
+    </tr>`
+  ).join('');
+  const extra = pedidos.length > 15 ? `<tr><td colspan="4" style="padding:6px 8px;color:#888;font-style:italic">... e mais ${pedidos.length - 15} pedido(s)</td></tr>` : '';
+ 
+  _confirmarBaixaMassa({
+    titulo:    '🟣 Baixa em Massa — Balcão / Retirada / Local',
+    cor:       '#7c3aed',
+    mensagem:  `Serão <strong>${pedidos.length} pedido(s)</strong> marcados como <strong>Entregue</strong>.`,
+    totalStr:  `Gs ${total.toLocaleString('es-PY')}`,
+    listaHtml: listaHtml + extra,
+    onConfirm: async () => {
+      const ids = pedidos.map(p => p.id);
+      await _executarBaixaMassa(ids);
+    }
+  });
+}
+ 
+// ── Baixa em massa: delivery com mais de 24h ──────────────────────────
+async function baixaMassaDelivery() {
+  const limite24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+ 
+  const { data: pedidos, error } = await supa
+    .from("pedidos")
+    .select("id, status, cliente_nome, total_geral, created_at")
+    .eq("tipo_entrega", "delivery")
+    .not("status", "in", '("entregue","cancelado")')
+    .lt("created_at", limite24h)
+    .order("created_at", { ascending: true });
+ 
+  if (error) { alert("Erro ao buscar pedidos: " + error.message); return; }
+  if (!pedidos?.length) { alert("✅ Nenhum pedido de delivery com mais de 24h em aberto."); return; }
+ 
+  const total = pedidos.reduce((s, p) => s + (p.total_geral || 0), 0);
+  const listaHtml = pedidos.slice(0, 15).map(p => {
+    const horas = Math.floor((Date.now() - new Date(p.created_at)) / 3600000);
+    const statusBadge = _badgeStatus(p.status);
+    return `<tr>
+      <td style="padding:4px 8px">#${p.id}</td>
+      <td style="padding:4px 8px">${statusBadge}</td>
+      <td style="padding:4px 8px">${(p.cliente_nome || '—').substring(0, 18)}</td>
+      <td style="padding:4px 8px;color:#b45309;font-weight:600">${horas}h atrás</td>
+      <td style="padding:4px 8px;text-align:right;font-weight:600">Gs ${(p.total_geral || 0).toLocaleString('es-PY')}</td>
+    </tr>`;
+  }).join('');
+  const extra = pedidos.length > 15 ? `<tr><td colspan="5" style="padding:6px 8px;color:#888;font-style:italic">... e mais ${pedidos.length - 15} pedido(s)</td></tr>` : '';
+ 
+  _confirmarBaixaMassa({
+    titulo:    '🟠 Baixa em Massa — Delivery +24h',
+    cor:       '#b45309',
+    mensagem:  `Serão <strong>${pedidos.length} pedido(s)</strong> de delivery com mais de 24h marcados como <strong>Entregue</strong>.<br><small style="color:#888">Independente do status atual (em preparo, pronto, saiu entrega…)</small>`,
+    totalStr:  `Gs ${total.toLocaleString('es-PY')}`,
+    listaHtml: listaHtml + extra,
+    onConfirm: async () => {
+      const ids = pedidos.map(p => p.id);
+      await _executarBaixaMassa(ids);
+    }
+  });
+}
+ 
+// ── Executa o update em batch ─────────────────────────────────────────
+async function _executarBaixaMassa(ids) {
+  const agora = new Date().toISOString();
+ 
+  // Supabase não tem IN update nativo — fazemos em lotes de 50
+  const LOTE = 50;
+  let erros = 0;
+  for (let i = 0; i < ids.length; i += LOTE) {
+    const lote = ids.slice(i, i + LOTE);
+    const { error } = await supa
+      .from("pedidos")
+      .update({ status: "entregue", tempo_entregue: agora })
+      .in("id", lote);
+    if (error) { console.error("Lote erro:", error); erros++; }
+  }
+ 
+  if (erros) {
+    alert(`⚠️ ${ids.length - erros * LOTE} pedidos atualizados, mas houve ${erros} erro(s). Verifique o console.`);
+  } else {
+    _mostrarToastBaixaMassa(`✅ ${ids.length} pedido(s) encerrado(s) com sucesso`);
+  }
+ 
+  // Recarrega a aba ativa
+  carregarPedidos();
+  if (typeof calcularFinanceiro === "function") calcularFinanceiro();
+}
+ 
+// ── Modal de confirmação reutilizável ─────────────────────────────────
+function _confirmarBaixaMassa({ titulo, cor, mensagem, totalStr, listaHtml, onConfirm }) {
+  // Remove modal anterior se existir
+  const anterior = document.getElementById("modal-baixa-massa");
+  if (anterior) anterior.remove();
+ 
+  const modal = document.createElement("div");
+  modal.id = "modal-baixa-massa";
+  modal.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px";
+ 
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:580px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden">
+ 
+      <!-- Header colorido -->
+      <div style="background:${cor};color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:1rem">${titulo}</h3>
+        <button onclick="document.getElementById('modal-baixa-massa').remove()"
+          style="background:none;border:none;color:#fff;font-size:1.4rem;cursor:pointer;line-height:1">✕</button>
+      </div>
+ 
+      <!-- Body -->
+      <div style="padding:20px">
+        <p style="margin:0 0 14px">${mensagem}</p>
+ 
+        <!-- Tabela de pedidos -->
+        <div style="max-height:260px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:14px">
+          <table style="width:100%;border-collapse:collapse;font-size:0.83rem">
+            <thead>
+              <tr style="background:#f9fafb;position:sticky;top:0">
+                <th style="padding:6px 8px;text-align:left;color:#555;font-weight:600">ID</th>
+                <th style="padding:6px 8px;text-align:left;color:#555;font-weight:600">Tipo/Status</th>
+                <th style="padding:6px 8px;text-align:left;color:#555;font-weight:600">Cliente</th>
+                <th style="padding:6px 8px;text-align:right;color:#555;font-weight:600">Total</th>
+              </tr>
+            </thead>
+            <tbody>${listaHtml}</tbody>
+          </table>
+        </div>
+ 
+        <!-- Total geral -->
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <span style="font-size:0.85rem;color:#555">Total geral dos pedidos</span>
+          <span style="font-weight:800;font-size:1.05rem;color:#16a34a">${totalStr}</span>
+        </div>
+ 
+        <!-- Aviso -->
+        <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:0.8rem;color:#78350f;margin-bottom:20px">
+          ⚠️ Esta ação é <strong>irreversível</strong>. Os pedidos serão marcados como <strong>Entregue</strong> e somados ao financeiro.
+        </div>
+ 
+        <!-- Botões -->
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button onclick="document.getElementById('modal-baixa-massa').remove()"
+            style="padding:10px 20px;background:#f5f5f5;color:#555;border:1px solid #ddd;border-radius:8px;font-weight:600;cursor:pointer">
+            Cancelar
+          </button>
+          <button id="btn-confirmar-baixa"
+            style="padding:10px 24px;background:${cor};color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:0.95rem">
+            ✅ Confirmar Baixa
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+ 
+  document.body.appendChild(modal);
+ 
+  // Fecha clicando fora
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+ 
+  // Confirmar
+  document.getElementById("btn-confirmar-baixa").addEventListener("click", async () => {
+    const btn = document.getElementById("btn-confirmar-baixa");
+    btn.disabled = true;
+    btn.textContent = "⏳ Processando...";
+    await onConfirm();
+    modal.remove();
+  });
+}
+ 
+// ── Toast de sucesso ──────────────────────────────────────────────────
+function _mostrarToastBaixaMassa(msg) {
+  const t = document.createElement("div");
+  t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#16a34a;color:#fff;padding:12px 24px;border-radius:10px;font-weight:700;font-size:0.9rem;z-index:999999;box-shadow:0 4px 20px rgba(0,0,0,0.25);animation:fadeInUp 0.3s ease";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+ 
+// ── Helpers ───────────────────────────────────────────────────────────
+function _labelTipo(tipo) {
+  return { balcao: '🏪 Balcão', retirada: '🚶 Retirada', local: '🪑 Local', delivery: '🛵 Delivery' }[tipo] || tipo;
+}
+ 
+function _badgeStatus(status) {
+  const map = {
+    pendente:       '<span style="background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:10px;font-size:0.75rem">Pendente</span>',
+    em_preparo:     '<span style="background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:10px;font-size:0.75rem">Preparo</span>',
+    pronto_entrega: '<span style="background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:10px;font-size:0.75rem">Pronto</span>',
+    saiu_entrega:   '<span style="background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:10px;font-size:0.75rem">Na rota</span>',
+  };
+  return map[status] || status;
+}
