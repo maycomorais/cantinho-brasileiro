@@ -2079,12 +2079,15 @@ document.querySelectorAll(".shake-sabor-row").forEach((row) => {
       if (preparoOpcoes.length > 0) configFinal.preparo_opcoes = preparoOpcoes;
     }
 
+    // Kg: apenas preco_kg, sem prod-preco
     if (tipo === "kg") {
-      const precoKg = parseFloat(document.getElementById("prod-preco-kg")?.value) || 0;
-      if (!precoKg) { alert("⚠️ Informe o preço por kg!"); btn.disabled = false; return; }
+      const precoKg =
+        parseFloat(document.getElementById("prod-preco-kg")?.value) || 0;
+      if (!precoKg) {
+        alert("⚠️ Informe o preço por kg!");
+        return;
+      }
       configFinal = { __tipo: "kg", preco_kg: precoKg };
-      // Preço base = preço/kg (referência para PDV)
-      document.getElementById("prod-preco").value = precoKg;
     }
 
     // Variações de sabor
@@ -5293,8 +5296,17 @@ function _criarCardPDV(p) {
   else card.classList.add("pdv-card-noimg");
   card.title = p.nome;
   card.onclick = () => adicionarItemPDV(p);
+
+  // Detecta se é produto kg
+  const cfg = p.montagem_config;
+  const isKg = cfg && !Array.isArray(cfg) && cfg.__tipo === "kg";
+  const precoKg = isKg && cfg.preco_kg ? parseFloat(cfg.preco_kg) : 0;
+  const priceLabel = isKg
+    ? `⚖️ Kg <span style="font-size:0.72rem;opacity:0.9">Gs ${precoKg.toLocaleString("es-PY")}/kg</span>`
+    : `Gs ${(p.preco || 0).toLocaleString("es-PY")}`;
+
   card.innerHTML = `
-    <div class="pdv-card-price">Gs ${p.preco.toLocaleString("es-PY")}</div>
+    <div class="pdv-card-price">${priceLabel}</div>
     <div class="pdv-card-overlay">${p.nome}</div>
   `;
   return card;
@@ -5375,6 +5387,12 @@ function adicionarItemPDV(p) {
     tipo === "almoco"
   ) {
     _mostrarModalComplexoPDV(p, tipo, cfg);
+    return;
+  }
+
+  // Produto vendido por Kg — abre modal de peso
+  if (tipo === "kg") {
+    _mostrarModalKgPDV(p);
     return;
   }
 
@@ -5483,6 +5501,290 @@ function _confirmarSimplesPDV(cacheKey) {
     });
   }
 }
+
+
+// ─── MODAL VENDA POR KG — PDV (Toledo Prix 3 + entrada manual) ───────────────
+
+let _pdvKgSerialRef = { port: null, reader: null, ativo: false };
+
+function _mostrarModalKgPDV(produto) {
+  document.getElementById("pdv-kg-modal")?.remove();
+
+  const cfg     = produto.montagem_config;
+  const precoKg = (cfg && cfg.preco_kg) ? parseFloat(cfg.preco_kg) : 0;
+  const cacheKey = "pdvk_" + (produto.id || Date.now());
+  window._pdvProdCache[cacheKey] = produto;
+
+  const overlay = document.createElement("div");
+  overlay.id = "pdv-kg-modal";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;" +
+    "display:flex;align-items:center;justify-content:center;padding:16px";
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) _fecharModalKg();
+  });
+
+  const modal = document.createElement("div");
+  modal.style.cssText =
+    "background:#fff;border-radius:18px;max-width:420px;width:100%;" +
+    "box-shadow:0 24px 80px rgba(0,0,0,0.3);overflow:hidden";
+
+  const precoFormatado = precoKg.toLocaleString("es-PY");
+
+  modal.innerHTML =
+    '<div style="background:linear-gradient(135deg,#0891b2 0%,#0e7490 100%);' +
+    'padding:16px 20px;display:flex;align-items:center;justify-content:space-between">' +
+    '<div>' +
+    '<div style="font-weight:700;font-size:1.05rem;color:#fff">' +
+    '\u2696\uFE0F ' + produto.nome + '</div>' +
+    '<div style="font-size:0.84rem;color:rgba(255,255,255,0.85);margin-top:2px">' +
+    'Gs ' + precoFormatado + ' / kg</div>' +
+    '</div>' +
+    '<button onclick="_fecharModalKg()" style="background:rgba(255,255,255,0.2);border:none;' +
+    'border-radius:50%;width:34px;height:34px;font-size:1.1rem;cursor:pointer;color:#fff;' +
+    'display:flex;align-items:center;justify-content:center;line-height:1">\u2715</button>' +
+    '</div>' +
+    '<div style="padding:20px 20px 6px">' +
+    '<div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:12px;' +
+    'padding:16px 20px;margin-bottom:16px;text-align:center">' +
+    '<div style="font-size:0.72rem;color:#0891b2;font-weight:700;' +
+    'text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">Peso</div>' +
+    '<div style="background:#e0f2fe;border-radius:8px;height:10px;overflow:hidden;margin-bottom:12px">' +
+    '<div id="pdvkg-barra" style="height:100%;width:0%;' +
+    'background:linear-gradient(90deg,#0891b2,#06b6d4);' +
+    'border-radius:8px;transition:width 0.35s ease"></div></div>' +
+    '<div id="pdvkg-peso-display" style="font-size:2.1rem;font-weight:800;color:#0e7490;' +
+    'min-height:46px;line-height:1.1">\u2014</div>' +
+    '<div id="pdvkg-total-display" style="font-size:0.92rem;color:#0891b2;font-weight:700;' +
+    'margin-top:4px;min-height:22px"></div>' +
+    '</div>' +
+    '<div style="margin-bottom:12px">' +
+    '<label style="font-size:0.8rem;color:#555;font-weight:700;display:block;margin-bottom:6px">' +
+    'Digite o peso em gramas:</label>' +
+    '<div style="position:relative">' +
+    '<input type="number" id="pdvkg-input" min="1" max="99999" placeholder="Ex: 300" ' +
+    'style="width:100%;padding:14px 44px 14px 16px;border:2px solid #bae6fd;' +
+    'border-radius:10px;font-size:1.3rem;font-weight:700;text-align:center;' +
+    'box-sizing:border-box;outline:none;transition:border-color 0.2s;color:#0e7490" ' +
+    'onfocus="this.style.borderColor=\'#0891b2\'" ' +
+    'onblur="this.style.borderColor=\'#bae6fd\'" ' +
+    'oninput="_atualizarPesoKgModal(' + precoKg + ')" />' +
+    '<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);' +
+    'font-size:0.85rem;color:#94a3b8;font-weight:700">g</span>' +
+    '</div>' +
+    '<div style="font-size:0.73rem;color:#94a3b8;margin-top:5px;text-align:center">' +
+    'Acima de 1000g \u00e9 convertido automaticamente para kg</div>' +
+    '</div>' +
+    '<button id="pdvkg-btn-balanca" onclick="_conectarBalancaPrix3(' + precoKg + ')" ' +
+    'style="width:100%;padding:11px;background:#fff;border:2px dashed #0891b2;border-radius:10px;' +
+    'color:#0891b2;font-weight:700;font-size:0.88rem;cursor:pointer;margin-bottom:12px;' +
+    'display:flex;align-items:center;justify-content:center;gap:8px;' +
+    'transition:background 0.15s;box-sizing:border-box" ' +
+    'onmouseover="if(!this.dataset.ativo)this.style.background=\'#f0f9ff\'" ' +
+    'onmouseout="if(!this.dataset.ativo)this.style.background=\'#fff\'">' +
+    '\uD83D\uDD0C Conectar Balan\u00e7a (Toledo Prix 3)</button>' +
+    '<button id="pdvkg-btn-add" onclick="_confirmarKgPDV(\'' + cacheKey + '\')" ' +
+    'style="width:100%;padding:14px;background:#0891b2;color:#fff;border:none;' +
+    'border-radius:11px;font-weight:700;font-size:0.97rem;cursor:pointer;' +
+    'display:flex;align-items:center;justify-content:center;gap:8px;' +
+    'opacity:0.45;pointer-events:none;transition:all 0.2s;margin-bottom:4px">' +
+    '\u2705 Adicionar ao Pedido</button>' +
+    '<div style="height:16px"></div>' +
+    '</div>';
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  setTimeout(function() {
+    var inp = document.getElementById("pdvkg-input");
+    if (inp) inp.focus();
+  }, 80);
+}
+
+function _fecharModalKg() {
+  if (_pdvKgSerialRef.ativo) _pararBalancaSerial();
+  document.getElementById("pdv-kg-modal")?.remove();
+}
+
+function _atualizarPesoKgModal(precoKg) {
+  var input   = document.getElementById("pdvkg-input");
+  var display = document.getElementById("pdvkg-peso-display");
+  var totalEl = document.getElementById("pdvkg-total-display");
+  var barra   = document.getElementById("pdvkg-barra");
+  var btnAdd  = document.getElementById("pdvkg-btn-add");
+  if (!input) return;
+
+  var gramas = parseFloat(input.value) || 0;
+  if (gramas <= 0) {
+    if (display) display.textContent = "\u2014";
+    if (totalEl) totalEl.textContent = "";
+    if (barra)   barra.style.width = "0%";
+    if (btnAdd)  { btnAdd.style.opacity = "0.45"; btnAdd.style.pointerEvents = "none"; }
+    return;
+  }
+
+  var labelPeso = gramas >= 1000
+    ? (gramas / 1000).toFixed(3).replace(/\.?0+$/, "") + " kg"
+    : gramas + " g";
+
+  var pesoKg = gramas / 1000;
+  var total  = Math.ceil(pesoKg * precoKg);
+
+  if (display) display.textContent = labelPeso;
+  if (totalEl) totalEl.textContent = "Total: Gs " + total.toLocaleString("es-PY");
+
+  var pct = Math.min((gramas / 5000) * 100, 100);
+  if (barra) barra.style.width = pct + "%";
+
+  if (btnAdd) { btnAdd.style.opacity = "1"; btnAdd.style.pointerEvents = "auto"; }
+}
+
+async function _conectarBalancaPrix3(precoKg) {
+  var btn = document.getElementById("pdvkg-btn-balanca");
+
+  if (_pdvKgSerialRef.ativo) {
+    _pararBalancaSerial();
+    if (btn) {
+      btn.textContent = "\uD83D\uDD0C Conectar Balan\u00e7a (Toledo Prix 3)";
+      btn.style.color = "#0891b2";
+      btn.style.borderColor = "#0891b2";
+      btn.style.background = "#fff";
+      delete btn.dataset.ativo;
+    }
+    return;
+  }
+
+  if (!("serial" in navigator)) {
+    alert("\u274C Web Serial API n\u00e3o suportada neste navegador.\nUse Chrome ou Edge (desktop) para conectar a balan\u00e7a.");
+    return;
+  }
+
+  try {
+    if (btn) btn.textContent = "\u23F3 Conectando...";
+
+    // Toledo Prix 3 — configuração padrão de fábrica: 9600 8N1
+    // (algumas unidades usam 9600 7E2 — ajuste conforme config da balança)
+    var port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600, dataBits: 8, parity: "none", stopBits: 1 });
+
+    _pdvKgSerialRef.port  = port;
+    _pdvKgSerialRef.ativo = true;
+
+    if (btn) {
+      btn.textContent = "\uD83D\uDD34 Desconectar Balan\u00e7a";
+      btn.style.color = "#dc2626";
+      btn.style.borderColor = "#dc2626";
+      btn.style.background = "#fff5f5";
+      btn.dataset.ativo = "1";
+    }
+
+    var decoder = new TextDecoderStream();
+    port.readable.pipeTo(decoder.writable);
+    var reader = decoder.readable.getReader();
+    _pdvKgSerialRef.reader = reader;
+
+    var buffer = "";
+    while (_pdvKgSerialRef.ativo) {
+      var res = await reader.read();
+      if (res.done) break;
+      buffer += res.value;
+      if (buffer.includes("\n") || buffer.includes("\r") || buffer.length > 32) {
+        var linhas = buffer.split(/[\r\n]+/);
+        buffer = linhas.pop() || "";
+        for (var i = 0; i < linhas.length; i++) {
+          var gramas = _parsearPesoToledoPrix3(linhas[i]);
+          if (gramas !== null && gramas > 0) {
+            var inputEl = document.getElementById("pdvkg-input");
+            if (inputEl) {
+              inputEl.value = gramas;
+              _atualizarPesoKgModal(precoKg);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    if (_pdvKgSerialRef.ativo) _pararBalancaSerial();
+    if (btn) {
+      btn.textContent = "\uD83D\uDD0C Conectar Balan\u00e7a (Toledo Prix 3)";
+      btn.style.color = "#0891b2";
+      btn.style.borderColor = "#0891b2";
+      btn.style.background = "#fff";
+      delete btn.dataset.ativo;
+    }
+    if (err.name !== "NotFoundError" && err.name !== "AbortError") {
+      console.warn("Balan\u00e7a Prix 3:", err.message);
+    }
+  }
+}
+
+async function _pararBalancaSerial() {
+  _pdvKgSerialRef.ativo = false;
+  try { if (_pdvKgSerialRef.reader) await _pdvKgSerialRef.reader.cancel(); } catch(_) {}
+  try { if (_pdvKgSerialRef.port)   await _pdvKgSerialRef.port.close();    } catch(_) {}
+  _pdvKgSerialRef.port   = null;
+  _pdvKgSerialRef.reader = null;
+}
+
+function _parsearPesoToledoPrix3(linha) {
+  if (!linha) return null;
+  var s = linha.trim().replace(/[\x02\x03]/g, "");
+
+  // Formato kg decimal: "1.234" ou "01.234"
+  var matchKg = s.match(/(\d{1,3})\.(\d{3})/);
+  if (matchKg) {
+    var gramas = parseInt(matchKg[1]) * 1000 + parseInt(matchKg[2]);
+    return gramas > 0 ? gramas : null;
+  }
+
+  // Formato gramas: "+0000350", "0000350", "350g"
+  var matchG = s.match(/[+\-]?0*(\d{1,5})/);
+  if (matchG) {
+    var g = parseInt(matchG[1]);
+    return (g > 0 && g <= 50000) ? g : null;
+  }
+
+  return null;
+}
+
+function _confirmarKgPDV(cacheKey) {
+  var p = window._pdvProdCache[cacheKey];
+  if (!p) return;
+
+  var inputEl = document.getElementById("pdvkg-input");
+  var gramas  = parseFloat(inputEl ? inputEl.value : 0) || 0;
+  if (gramas <= 0) {
+    alert("\u26A0\uFE0F Informe o peso antes de adicionar!");
+    return;
+  }
+
+  var cfg     = p.montagem_config;
+  var precoKg = (cfg && cfg.preco_kg) ? parseFloat(cfg.preco_kg) : 0;
+  var total   = Math.ceil((gramas / 1000) * precoKg);
+  var labelPeso = gramas >= 1000
+    ? (gramas / 1000).toFixed(3).replace(/\.?0+$/, "") + " kg"
+    : gramas + "g";
+
+  if (_pdvKgSerialRef.ativo) _pararBalancaSerial();
+
+  carrinhoPDV.push({
+    id:            p.id,
+    nome:          p.nome,
+    img:           p.imagem_url,
+    preco:         total,
+    qtd:           1,
+    variacao:      "\u2696\uFE0F " + labelPeso,
+    montagem:      [],
+    obs:           "",
+    categoria_slug: p.categoria_slug || "",
+    _peso_g:       gramas,
+    _preco_kg:     precoKg,
+  });
+
+  document.getElementById("pdv-kg-modal")?.remove();
+  atualizarCarrinhoPDV();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 let _pdvModalState = {};
 
@@ -7962,39 +8264,39 @@ async function baixaMassaMesa() {
   });
 }
  
-// ── Baixa em massa: delivery com mais de 24h ──────────────────────────
+// ── Baixa em massa: todos os deliveries em aberto ─────────────────────
 async function baixaMassaDelivery() {
-  const limite24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
- 
   const { data: pedidos, error } = await supa
     .from("pedidos")
     .select("id, status, cliente_nome, total_geral, created_at")
     .eq("tipo_entrega", "delivery")
     .not("status", "in", '("entregue","cancelado")')
-    .lt("created_at", limite24h)
     .order("created_at", { ascending: true });
  
   if (error) { alert("Erro ao buscar pedidos: " + error.message); return; }
-  if (!pedidos?.length) { alert("✅ Nenhum pedido de delivery com mais de 24h em aberto."); return; }
+  if (!pedidos?.length) { alert("✅ Nenhum pedido de delivery em aberto."); return; }
  
   const total = pedidos.reduce((s, p) => s + (p.total_geral || 0), 0);
   const listaHtml = pedidos.slice(0, 15).map(p => {
     const horas = Math.floor((Date.now() - new Date(p.created_at)) / 3600000);
+    const tempoLabel = horas < 1
+      ? Math.floor((Date.now() - new Date(p.created_at)) / 60000) + "min atrás"
+      : horas + "h atrás";
     const statusBadge = _badgeStatus(p.status);
     return `<tr>
       <td style="padding:4px 8px">#${p.id}</td>
       <td style="padding:4px 8px">${statusBadge}</td>
       <td style="padding:4px 8px">${(p.cliente_nome || '—').substring(0, 18)}</td>
-      <td style="padding:4px 8px;color:#b45309;font-weight:600">${horas}h atrás</td>
+      <td style="padding:4px 8px;color:#b45309;font-weight:600">${tempoLabel}</td>
       <td style="padding:4px 8px;text-align:right;font-weight:600">Gs ${(p.total_geral || 0).toLocaleString('es-PY')}</td>
     </tr>`;
   }).join('');
   const extra = pedidos.length > 15 ? `<tr><td colspan="5" style="padding:6px 8px;color:#888;font-style:italic">... e mais ${pedidos.length - 15} pedido(s)</td></tr>` : '';
  
   _confirmarBaixaMassa({
-    titulo:    '🟠 Baixa em Massa — Delivery +24h',
+    titulo:    '🟠 Baixa em Massa — Delivery',
     cor:       '#b45309',
-    mensagem:  `Serão <strong>${pedidos.length} pedido(s)</strong> de delivery com mais de 24h marcados como <strong>Entregue</strong>.<br><small style="color:#888">Independente do status atual (em preparo, pronto, saiu entrega…)</small>`,
+    mensagem:  `Serão <strong>${pedidos.length} pedido(s)</strong> de delivery marcados como <strong>Entregue</strong>.<br><small style="color:#888">Independente do status atual (em preparo, pronto, saiu entrega…)</small>`,
     totalStr:  `Gs ${total.toLocaleString('es-PY')}`,
     listaHtml: listaHtml + extra,
     onConfirm: async () => {

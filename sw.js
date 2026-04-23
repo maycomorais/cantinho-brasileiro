@@ -1,5 +1,5 @@
 // sw.js — Service Worker do Cantinho Brasileiro
-const CACHE_NAME = 'cantinho-v2.3';
+const CACHE_NAME = 'cantinho-v2.4';
 const ASSETS_TO_CACHE = [
     '/index.html',
     '/style.css',
