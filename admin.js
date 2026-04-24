@@ -4127,23 +4127,31 @@ async function carregarExtrasGlobaisAdmin() {
       data.extras_globais.forEach((ex) => addExtraGlobal(ex));
 
     // Carrega categorias para o seletor
-    const { data: cats } = await supa
+    const { data: cats, error: catsError } = await supa
       .from("categorias")
       .select("slug, nome_exibicao")
-      .eq("ativa", true)
+      .eq("ativo", true)
       .order("ordem");
     const catsContainer = document.getElementById("extras-globais-cats-lista");
-    if (catsContainer && cats) {
-      const selCats = data?.extras_globais_categorias || null;
-      catsContainer.innerHTML = cats
-        .map(
-          (c) => `
-        <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--color-background-secondary);border-radius:6px;cursor:pointer;font-size:0.82rem">
-          <input type="checkbox" value="${c.slug}" ${!selCats || selCats.includes(c.slug) ? "checked" : ""} style="width:15px;height:15px">
-          ${c.nome_exibicao || c.slug}
-        </label>`,
-        )
-        .join("");
+    if (catsContainer) {
+      if (catsError) {
+        console.error("❌ Erro ao carregar categorias para Extras Globais:", catsError.message);
+        catsContainer.innerHTML = `<span style="color:red;font-size:0.8rem">Erro ao carregar categorias: ${catsError.message}</span>`;
+      } else if (!cats || cats.length === 0) {
+        console.warn("⚠️ Nenhuma categoria ativa encontrada para Extras Globais.");
+        catsContainer.innerHTML = `<span style="color:#888;font-size:0.8rem">Nenhuma categoria ativa encontrada.</span>`;
+      } else {
+        const selCats = data?.extras_globais_categorias || null;
+        catsContainer.innerHTML = cats
+          .map(
+            (c) => `
+          <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--color-background-secondary);border-radius:6px;cursor:pointer;font-size:0.82rem">
+            <input type="checkbox" value="${c.slug}" ${!selCats || selCats.includes(c.slug) ? "checked" : ""} style="width:15px;height:15px">
+            ${c.nome_exibicao || c.slug}
+          </label>`,
+          )
+          .join("");
+      }
     }
   } catch (e) {
     console.log("Extras globais:", e.message);
