@@ -94,7 +94,9 @@ function _estRender() {
   _est_pedidos.forEach(pedido => {
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     itens.forEach(item => {
-      const nome     = item.nome || item.n || 'Desconhecido';
+      const nome     = item.variacao
+        ? `${item.nome || item.n || 'Desconhecido'} ▸ ${item.variacao}`
+        : (item.nome || item.n || 'Desconhecido');
       const isKg     = item._isKg || item.peso_gramas > 0;
       const qtd      = isKg ? 0 : (item.qtd || item.q || 1);
       const pesoG    = isKg ? (item.peso_gramas || 0) : 0;
@@ -171,8 +173,8 @@ function _estRenderTabela(produtos) {
     return;
   }
 
-  // Ordena alfabeticamente
-  const sorted = [...produtos].sort((a, b) => a.nome.localeCompare(b.nome));
+  // Ordena por faturamento decrescente
+  const sorted = [...produtos].sort((a, b) => b.faturamento - a.faturamento);
 
   tbody.innerHTML = sorted.map(p => {
     const qtdExib = p.unidade === 'kg'

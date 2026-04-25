@@ -112,12 +112,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const { data: perfil } = await supa
       .from("perfis_acesso")
-      .select("cargo, nome_display")
+      .select("cargo, email")
       .eq("id", session.user.id)
       .single();
 
     _perfilId = session.user.id;
-    _perfilNome = perfil?.nome_display || session.user.email || "Admin";
+    _perfilNome = perfil?.email || session.user.email || "Admin";
     perfilUsuario = perfil ? perfil.cargo : "dono";
 
     // Atualiza sidebar: nome, cargo e email
@@ -753,8 +753,6 @@ async function carregarPedidos(silencioso = false) {
       .update({
         status: "entregue",
         tempo_entregue: new Date().toISOString(),
-        entrega_confirmada_em: new Date().toISOString(),
-        confirmacao_tipo: "automatica",
       })
       .eq("id", p.id);
   }
@@ -775,9 +773,9 @@ async function carregarPedidos(silencioso = false) {
       const btnPrint = `<button class="btn btn-sm btn-info" onclick="imprimirPedido(${p.id})" title="Imprimir"><i class="fas fa-print"></i></button>`;
       const temSolicitacaoCancelamento = p.cancelamento_solicitado;
 
-      // Badge cancelamento (só dono vê)
+      // Badge cancelamento (dono e adminMaster veem)
       const badgeCancelRow =
-        temSolicitacaoCancelamento && perfilUsuario === "dono"
+        temSolicitacaoCancelamento && (perfilUsuario === "dono" || perfilUsuario === "adminMaster")
           ? `<div style="background:#fff0f0;border:1px solid #e74c3c;border-radius:6px;padding:4px 8px;font-size:0.75rem;margin-top:4px;color:#c0392b">
                      🚫 <strong>Cancelamento solicitado:</strong> ${p.cancelamento_motivo || "-"}
                      <br><button class="btn btn-danger btn-sm" onclick="aprovarCancelamento(${p.id})" style="margin-top:4px;font-size:0.7rem">✅ Aprovar</button>
@@ -8769,6 +8767,12 @@ async function carregarMonitorMesas() {
       statusHtml =
         '<span class="mesa-monitor-status-pronto"><i class="fas fa-check-circle"></i> PRONTO!</span>';
       acaoHtml = `<button class="btn btn-sm btn-success btn-block-pdv" onclick="finalizarMesa(${p.id})">Entregar / Baixar</button>`;
+    } else if (p.status === "cancelado") {
+      cardClass += " mesa-cancelada";
+      statusHtml = '<span style="color:#e74c3c;font-weight:700">✕ Cancelado</span>';
+      acaoHtml = `<button class="btn btn-sm btn-danger btn-block-pdv" onclick="apagarMesaCancelada(${p.id})" style="margin-top:6px;background:#e74c3c;color:#fff;width:100%;padding:8px;border:none;border-radius:8px;cursor:pointer">
+        <i class="fas fa-trash"></i> Apagar registro
+      </button>`;
     } else {
       statusHtml = `<span class="mesa-monitor-valor">${p.status}</span>`;
     }
@@ -8878,6 +8882,17 @@ async function finalizarMesa(id) {
     carregarMonitorMesas();
     if (typeof calcularFinanceiro === "function") calcularFinanceiro();
   }
+}
+
+async function apagarMesaCancelada(id) {
+  if (!confirm("Apagar este registro cancelado? Esta ação não pode ser desfeita.")) return;
+  const { error } = await supa
+    .from("pedidos")
+    .delete()
+    .eq("id", id)
+    .eq("status", "cancelado");
+  if (error) { alert("Erro ao apagar: " + error.message); return; }
+  carregarMonitorMesas();
 }
 
 // Utilitários de Modal e Checkbox
@@ -9555,7 +9570,7 @@ async function baixarTodosNaoDelivery() {
       status: "entregue",
       tempo_entregue: now,
       entrega_confirmada_em: now,
-      confirmacao_tipo: "funcionario",
+      confirmacao_tipo: "massa",
     })
     .in(
       "id",

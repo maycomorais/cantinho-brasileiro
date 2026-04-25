@@ -234,7 +234,7 @@ function mensAbrirModalPlano(id = null) {
 
 async function mensSalvarPlano() {
   const id           = document.getElementById('mens-plano-id').value;
-  const cliente_id   = parseInt(document.getElementById('mens-plano-cli-id').value) || null;
+  const cliente_id   = document.getElementById('mens-plano-cli-id').value || null;
   const produto_nome = document.getElementById('mens-plano-produto').value.trim();
   const qtd_total    = parseInt(document.getElementById('mens-plano-qtd').value) || 0;
   const valor        = parseFloat(document.getElementById('mens-plano-valor').value) || 0;
