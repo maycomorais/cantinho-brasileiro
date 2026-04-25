@@ -723,7 +723,7 @@ async function carregarPedidos(silencioso = false) {
     .from("pedidos")
     .select("*")
     .or(
-      "status.eq.pendente,status.eq.em_preparo,status.eq.pronto_entrega,status.eq.saiu_entrega",
+      "status.eq.pendente,status.eq.pronto_entrega,status.eq.saiu_entrega",
     )
     .order("id", { ascending: false });
 
@@ -753,6 +753,8 @@ async function carregarPedidos(silencioso = false) {
       .update({
         status: "entregue",
         tempo_entregue: new Date().toISOString(),
+        entrega_confirmada_em: new Date().toISOString(),
+        confirmacao_tipo: "automatica",
       })
       .eq("id", p.id);
   }
@@ -4127,31 +4129,23 @@ async function carregarExtrasGlobaisAdmin() {
       data.extras_globais.forEach((ex) => addExtraGlobal(ex));
 
     // Carrega categorias para o seletor
-    const { data: cats, error: catsError } = await supa
+    const { data: cats } = await supa
       .from("categorias")
       .select("slug, nome_exibicao")
-      .eq("ativo", true)
+      .eq("ativa", true)
       .order("ordem");
     const catsContainer = document.getElementById("extras-globais-cats-lista");
-    if (catsContainer) {
-      if (catsError) {
-        console.error("❌ Erro ao carregar categorias para Extras Globais:", catsError.message);
-        catsContainer.innerHTML = `<span style="color:red;font-size:0.8rem">Erro ao carregar categorias: ${catsError.message}</span>`;
-      } else if (!cats || cats.length === 0) {
-        console.warn("⚠️ Nenhuma categoria ativa encontrada para Extras Globais.");
-        catsContainer.innerHTML = `<span style="color:#888;font-size:0.8rem">Nenhuma categoria ativa encontrada.</span>`;
-      } else {
-        const selCats = data?.extras_globais_categorias || null;
-        catsContainer.innerHTML = cats
-          .map(
-            (c) => `
-          <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--color-background-secondary);border-radius:6px;cursor:pointer;font-size:0.82rem">
-            <input type="checkbox" value="${c.slug}" ${!selCats || selCats.includes(c.slug) ? "checked" : ""} style="width:15px;height:15px">
-            ${c.nome_exibicao || c.slug}
-          </label>`,
-          )
-          .join("");
-      }
+    if (catsContainer && cats) {
+      const selCats = data?.extras_globais_categorias || null;
+      catsContainer.innerHTML = cats
+        .map(
+          (c) => `
+        <label style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--color-background-secondary);border-radius:6px;cursor:pointer;font-size:0.82rem">
+          <input type="checkbox" value="${c.slug}" ${!selCats || selCats.includes(c.slug) ? "checked" : ""} style="width:15px;height:15px">
+          ${c.nome_exibicao || c.slug}
+        </label>`,
+        )
+        .join("");
     }
   } catch (e) {
     console.log("Extras globais:", e.message);
@@ -7998,6 +7992,15 @@ function removerItemPDV(idx) {
   atualizarCarrinhoPDV();
 }
 
+function pdvEditarObs(idx) {
+  const item = carrinhoPDV[idx];
+  if (!item) return;
+  const obs = prompt(`Observação para "${item.nome}"${item.variacao ? " (" + item.variacao + ")" : ""}:`, item.obs || "");
+  if (obs === null) return; // cancelado
+  item.obs = obs.trim();
+  atualizarCarrinhoPDV();
+}
+
 function atualizarCarrinhoPDV() {
   const lista = document.getElementById("pdv-lista");
   const totalEl = document.getElementById("balcao-total");
@@ -8074,11 +8077,17 @@ function atualizarCarrinhoPDV() {
           <td class="tr" style="font-size:0.7rem;color:#666">—</td>
           <td class="tr">Gs ${item.preco.toLocaleString("es-PY")} <button class="pdv-item-remove" onclick="removerItemPDV(${idx})">✕</button></td>`;
       } else {
+        const variacaoLabel = item.variacao
+          ? `<div style="font-size:0.68rem;color:#e67e22;font-weight:600">▸ ${item.variacao}</div>`
+          : "";
+        const obsLabel = item.obs
+          ? `<div style="font-size:0.68rem;color:#c0392b">⚠ ${item.obs}</div>`
+          : "";
         row.innerHTML = `
-          <td class="pdv-item-nome">${item.nome}</td>
+          <td class="pdv-item-nome">${item.nome}${variacaoLabel}${obsLabel}</td>
           <td class="tc pdv-item-qtd">${item.qtd}×</td>
           <td class="tr" style="font-size:0.7rem;color:#666">Gs ${item.preco.toLocaleString("es-PY")}</td>
-          <td class="tr">Gs ${(item.preco * item.qtd).toLocaleString("es-PY")} <button class="pdv-item-remove" onclick="removerItemPDV(${idx})">✕</button></td>`;
+          <td class="tr">Gs ${(item.preco * item.qtd).toLocaleString("es-PY")} <button class="pdv-item-remove" onclick="removerItemPDV(${idx})">✕</button><button class="pdv-item-obs" onclick="pdvEditarObs(${idx})" title="Observação">✎</button></td>`;
       }
       lista.appendChild(row);
     });
@@ -8346,7 +8355,11 @@ async function salvarPedidoBalcao() {
     ? `MESA ${mesa} - ${cli}`
     : _soKg
       ? `BALCÃO KG - ${cli}`
-      : `BALCÃO - ${cli}`;
+      : tipoEntregaPDV === "local"
+        ? `LOCAL - ${cli}`
+        : tipoEntregaPDV === "retirada"
+          ? `RETIRADA - ${cli}`
+          : `BALCÃO - ${cli}`;
 
   // ── Desconto manual ──────────────────────────────────────────
   const descTipo =
@@ -8394,6 +8407,7 @@ async function salvarPedidoBalcao() {
     nome: i.nome,
     preco: i.preco,
     qtd: i.qtd,
+    variacao: i.variacao || "",   // ← variação do produto (ex: sabor, tamanho)
     montagem: i.montagem || [],
     obs: i.obs || "",
     categoria_slug: i.categoria_slug || "",
@@ -9541,7 +9555,7 @@ async function baixarTodosNaoDelivery() {
       status: "entregue",
       tempo_entregue: now,
       entrega_confirmada_em: now,
-      confirmacao_tipo: "massa",
+      confirmacao_tipo: "funcionario",
     })
     .in(
       "id",

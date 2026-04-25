@@ -441,13 +441,6 @@
                   placeholder="Buscar produto..." oninput="filtrarPDV(this.value)" />
               </div>
 
-              <!-- Mesas ativas -->
-              <div class="pdv-mesas-bar" id="pdv-mesas-bar">
-                <i class="fas fa-chair" style="color:#888;font-size:0.75rem"></i>
-                <span class="pdv-mesas-label">Mesas:</span>
-                <span id="pdv-mesas-vazio" style="color:#aaa;font-size:0.75rem">Nenhuma mesa ativa</span>
-              </div>
-
               <!-- Grid de produtos -->
               <div class="pdv-grid-wrap"><div id="pdv-grid"></div></div>
             </div>
@@ -459,16 +452,14 @@
 
               <!-- Tipo de pedido — abas -->
               <div class="pdv-tipo-tabs">
-                <button class="pdv-tipo-tab active" data-tipo="balcao"
-                  onclick="pdvSelecionarTipo('balcao',this)">🏪 Balcão</button>
-                <button class="pdv-tipo-tab" data-tipo="delivery"
-                  onclick="pdvSelecionarTipo('delivery',this)">🛵 Delivery</button>
+                <button class="pdv-tipo-tab active" data-tipo="local"
+                  onclick="pdvSelecionarTipo('local',this)">🍽️ Local</button>
                 <button class="pdv-tipo-tab" data-tipo="retirada"
                   onclick="pdvSelecionarTipo('retirada',this)">🚶 Retirada</button>
-                <button class="pdv-tipo-tab" data-tipo="local"
-                  onclick="pdvSelecionarTipo('local',this)">🍽️ Local</button>
+                <button class="pdv-tipo-tab" data-tipo="delivery"
+                  onclick="pdvSelecionarTipo('delivery',this)">🛵 Delivery</button>
               </div>
-              <input type="hidden" id="balcao-tipo-entrega" value="balcao">
+              <input type="hidden" id="balcao-tipo-entrega" value="local">
 
               <!-- Dados cliente -->
               <div class="pdv-dir-dados">

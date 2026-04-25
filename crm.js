@@ -222,7 +222,9 @@ async function crmSalvarCliente() {
   if (!nome) { alert('Informe o nome do cliente.'); return; }
   if (!tel)  { alert('Informe o telefone/WhatsApp.'); return; }
 
-  const payload = { nome, telefone: tel, data_nascimento: nasc, saldo_cashback: saldo };
+  const payload = { nome, telefone: tel };
+  if (nasc) payload.data_nascimento = nasc;
+  if (saldo !== undefined && saldo !== null) payload.saldo_cashback = saldo;
 
   const { error } = id
     ? await supa.from('clientes').update(payload).eq('id', id)
