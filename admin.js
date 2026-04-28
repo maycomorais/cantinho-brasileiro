@@ -1376,7 +1376,7 @@ async function calcularFinanceiro() {
   let query = supa
     .from("pedidos")
     .select("*, motoboys(nome)")
-    .in("status", ["entregue", "em_preparo", "pronto_entrega", "saiu_entrega"])
+    .eq("status", "entregue")
     .gte("created_at", utcI)
     .lte("created_at", utcF);
   if (tipoFiltro !== "todos") query = query.eq("forma_pagamento", tipoFiltro);
@@ -6653,6 +6653,14 @@ function pdvSelecionarTipo(tipo, btn) {
   if (btn) btn.classList.add("active");
   const delivRow = document.getElementById("pdv-delivery-row");
   if (delivRow) delivRow.style.display = tipo === "delivery" ? "" : "none";
+  // ── Esconder campo Mesa para delivery e retirada ──
+  const mesaWrap = document.getElementById("balcao-mesa")?.closest("div[style]");
+  if (mesaWrap) {
+    mesaWrap.style.display = (tipo === "delivery" || tipo === "retirada") ? "none" : "";
+    if (tipo === "delivery" || tipo === "retirada") {
+      document.getElementById("balcao-mesa").value = "";
+    }
+  }
   atualizarCarrinhoPDV();
 }
 
@@ -8340,6 +8348,10 @@ async function salvarPedidoBalcao() {
 
   const _soKg = carrinhoPDV.length > 0 && carrinhoPDV.every((i) => i._isKg);
 
+  // ── Lê tipo de entrega ANTES de montar nomeFinal ──────────────
+  const tipoEntregaPDV =
+    document.getElementById("balcao-tipo-entrega")?.value || "balcao";
+
   const mesa = document.getElementById("balcao-mesa").value.trim();
   const cli =
     document.getElementById("balcao-cliente").value.trim() || "Cliente";
@@ -8356,11 +8368,13 @@ async function salvarPedidoBalcao() {
     ? `MESA ${mesa} - ${cli}`
     : _soKg
       ? `BALCÃO KG - ${cli}`
-      : tipoEntregaPDV === "local"
-        ? `LOCAL - ${cli}`
-        : tipoEntregaPDV === "retirada"
-          ? `RETIRADA - ${cli}`
-          : `BALCÃO - ${cli}`;
+      : tipoEntregaPDV === "delivery"
+        ? `DELIVERY - ${cli}`
+        : tipoEntregaPDV === "local"
+          ? `LOCAL - ${cli}`
+          : tipoEntregaPDV === "retirada"
+            ? `RETIRADA - ${cli}`
+            : `BALCÃO - ${cli}`;
 
   // ── Desconto manual ──────────────────────────────────────────
   const descTipo =
@@ -8473,8 +8487,7 @@ async function salvarPedidoBalcao() {
   }
 
   // ── INSERT: novo pedido de balcão ─────────────────────────────
-  const tipoEntregaPDV =
-    document.getElementById("balcao-tipo-entrega")?.value || "balcao";
+  // tipoEntregaPDV já definido no início da função
   const fretePDV =
     tipoEntregaPDV === "delivery"
       ? parseInt(document.getElementById("balcao-frete")?.value || "0") || 0
@@ -8482,11 +8495,13 @@ async function salvarPedidoBalcao() {
   const enderecoPDV =
     tipoEntregaPDV === "delivery"
       ? document.getElementById("balcao-endereco")?.value.trim() || "Delivery"
-      : mesa
-        ? `Mesa ${mesa}`
-        : _soKg
-          ? "Balcão - Venda Kg"
-          : "Balcão";
+      : tipoEntregaPDV === "retirada"
+        ? "Retirada"
+        : mesa
+          ? `Mesa ${mesa}`
+          : _soKg
+            ? "Balcão - Venda Kg"
+            : "Balcão";
 
   const _geoLat = document.getElementById("balcao-geo-lat")?.value || null;
   const _geoLng = document.getElementById("balcao-geo-lng")?.value || null;
@@ -8555,7 +8570,7 @@ async function salvarPedidoBalcao() {
     const dadosImpressao = {
       id: novoPedido.id,
       cliente: { nome: nomeFinal, tel: tel },
-      entrega: { tipo: "balcao", ref: pedido.endereco_entrega },
+      entrega: { tipo: tipoEntregaPDV, ref: pedido.endereco_entrega },
       itens: novosItens.map((i) => ({
         q: i.qtd || 1,
         n: i.nome,
@@ -8833,7 +8848,7 @@ async function baixarItemMesa(pedidoId, itemIdx) {
   // Busca snapshot mais recente do banco (evita conflito de estado stale)
   const { data: p, error: errFetch } = await supa
     .from("pedidos")
-    .select("itens, total_geral")
+    .select("itens, total_geral, status")
     .eq("id", pedidoId)
     .single();
   if (errFetch || !p) {
@@ -8847,9 +8862,17 @@ async function baixarItemMesa(pedidoId, itemIdx) {
   // Muda status do item específico
   itens[itemIdx] = { ...itens[itemIdx], status_item: "entregue" };
 
+  // ── Verifica se TODOS os itens agora estão entregues ────────────
+  const todosEntregues = itens.every((i) => i.status_item === "entregue");
+  const updatePayload = { itens };
+  if (todosEntregues) {
+    updatePayload.status = "entregue";
+    updatePayload.tempo_entregue = new Date().toISOString();
+  }
+
   const { error } = await supa
     .from("pedidos")
-    .update({ itens })
+    .update(updatePayload)
     .eq("id", pedidoId);
 
   if (error) {
@@ -8864,6 +8887,11 @@ async function baixarItemMesa(pedidoId, itemIdx) {
   }
   // Atualiza o monitor de mesas sem precisar recarregar tudo
   atualizarBarraMesasAtivas();
+  carregarMonitorMesas();
+  // Se todos entregues, atualiza financeiro também
+  if (todosEntregues && typeof calcularFinanceiro === "function") {
+    calcularFinanceiro();
+  }
 }
 
 // Função para dar baixa na mesa (Muda status para 'entregue' e sai da lista)
@@ -9556,7 +9584,6 @@ async function baixarTodosNaoDelivery() {
       status: "entregue",
       tempo_entregue: now,
       entrega_confirmada_em: now,
-      confirmacao_tipo: "massa",
     })
     .in(
       "id",
@@ -10355,13 +10382,13 @@ async function obterDistanciaPelaRota(latDestino, lngDestino) {
 }
 
 async function calcularFretePDV() {
-  const btn = document.getElementById("btn-gps-pdv");
+  // Encontra o botão de rota (não tem ID fixo no HTML)
+  const btn = document.querySelector('#pdv-delivery-row button[onclick*="calcularFretePDV"]');
   const msg = document.getElementById("frete-msg-pdv");
   const freteInput = document.getElementById("balcao-frete");
 
-  btn.disabled = true;
-  btn.innerText = "⏳";
-  msg.innerHTML = '<span style="color:#888">Localizando...</span>';
+  if (btn) { btn.disabled = true; btn.innerText = "⏳"; }
+  if (msg) msg.innerHTML = '<span style="color:#888">Localizando...</span>';
 
   // ── Tenta extrair coordenadas do link colado no campo endereço ────────
   const endVal = (
@@ -10396,10 +10423,9 @@ async function calcularFretePDV() {
   // ── Se não extraiu do link, usa GPS do dispositivo ────────────────────
   if (lat === null || lng === null) {
     if (!navigator.geolocation) {
-      msg.innerHTML =
+      if (msg) msg.innerHTML =
         '<span style="color:#e74c3c">Cole um link do Google Maps ou use um celular com GPS</span>';
-      btn.disabled = false;
-      btn.innerText = "📍 Rota";
+      if (btn) { btn.disabled = false; btn.innerText = "📍 Rota"; }
       return;
     }
     let position;
@@ -10411,10 +10437,9 @@ async function calcularFretePDV() {
         }),
       );
     } catch {
-      msg.innerHTML =
+      if (msg) msg.innerHTML =
         '<span style="color:#e74c3c">Cole um link do Google Maps no campo endereço, ou permita o GPS</span>';
-      btn.disabled = false;
-      btn.innerText = "📍 Rota";
+      if (btn) { btn.disabled = false; btn.innerText = "📍 Rota"; }
       return;
     }
     lat = position.coords.latitude;
@@ -10462,10 +10487,9 @@ async function calcularFretePDV() {
     freteIndex === -1 ||
     (TABELA_FRETE_ADMIN && TABELA_FRETE_ADMIN[freteIndex]?.acombinar)
   ) {
-    msg.innerHTML = `<span style="color:#e67e22">⚠️ ${dist.toFixed(1)}km (${nota}) — combinar frete</span>`;
-    freteInput.value = "";
-    btn.disabled = false;
-    btn.innerText = "📍 Rota";
+    if (msg) msg.innerHTML = `<span style="color:#e67e22">⚠️ ${dist.toFixed(1)}km (${nota}) — combinar frete</span>`;
+    if (freteInput) freteInput.value = "";
+    if (btn) { btn.disabled = false; btn.innerText = "📍 Rota"; }
     atualizarCarrinhoPDV();
     return;
   }
@@ -10481,11 +10505,39 @@ async function calcularFretePDV() {
     else frete = 24000 + Math.ceil(dist - 6.2) * 3000;
   }
 
-  freteInput.value = frete;
+  if (freteInput) freteInput.value = frete;
   const aviso = usouRota ? "" : ' <em style="color:#e67e22">(estimativa)</em>';
-  msg.innerHTML = `<span style="color:#27ae60">✅ ${dist.toFixed(1)}km ${nota} → Gs ${frete.toLocaleString("es-PY")}</span>${aviso}`;
-  btn.disabled = false;
-  btn.innerText = "📍 Rota";
+  if (msg) msg.innerHTML = `<span style="color:#27ae60">✅ ${dist.toFixed(1)}km ${nota} → Gs ${frete.toLocaleString("es-PY")}</span>${aviso}`;
+  if (btn) { btn.disabled = false; btn.innerText = "📍 Rota"; }
+  atualizarCarrinhoPDV();
+}
+
+// ── Funções de edição de itens no carrinho PDV ──────────────────
+function removerItemPDV(idx) {
+  if (idx >= 0 && idx < carrinhoPDV.length) {
+    carrinhoPDV.splice(idx, 1);
+    atualizarCarrinhoPDV();
+  }
+}
+
+function pdvEditarObs(idx) {
+  if (idx < 0 || idx >= carrinhoPDV.length) return;
+  const item = carrinhoPDV[idx];
+  const novaObs = prompt(`Observação para "${item.nome}":`, item.obs || '');
+  if (novaObs !== null) {
+    carrinhoPDV[idx].obs = novaObs.trim();
+    atualizarCarrinhoPDV();
+  }
+}
+
+function pdvEditarQtd(idx, delta) {
+  if (idx < 0 || idx >= carrinhoPDV.length) return;
+  const novaQtd = carrinhoPDV[idx].qtd + delta;
+  if (novaQtd <= 0) {
+    carrinhoPDV.splice(idx, 1);
+  } else {
+    carrinhoPDV[idx].qtd = novaQtd;
+  }
   atualizarCarrinhoPDV();
 }
 

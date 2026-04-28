@@ -272,18 +272,36 @@ async function mensSalvarPlano() {
   }
 
   if (error) { alert('Erro ao salvar: ' + error.message); return; }
+
+  // ── Registrar valor do plano no financeiro (apenas plano NOVO) ──
+  if (!id) {
+    const emailUsuario = document.getElementById('user-email')?.innerText || 'admin';
+    const clienteNome = _mens_clientes.find(c => c.id === cliente_id)?.nome || 'Cliente';
+    await supa.from('movimentacoes_caixa').insert([{
+      tipo: 'suprimento',
+      valor: valor,
+      descricao: `💳 Plano Mensalista — ${clienteNome} — ${produto_nome} (${qtd_total} itens)`,
+      usuario_email: emailUsuario,
+    }]);
+  }
+
   fecharModal('modal-mens-plano');
   mensCarregarPlanos();
+  // Atualiza financeiro se estiver aberto
+  if (typeof calcularFinanceiro === 'function') calcularFinanceiro();
 }
 
 // ──────────────────────────────────────────────────────────────
-//  REGISTRAR ENTREGA
+//  REGISTRAR ENTREGA (com escolha de itens diária)
 // ──────────────────────────────────────────────────────────────
+let _mens_entrega_itens_selecionados = [];
+
 function mensAbrirEntrega(planoId) {
   _mens_planoEntregaAtual = _mens_planos.find(p => p.id === planoId);
   if (!_mens_planoEntregaAtual) return;
 
   const p = _mens_planoEntregaAtual;
+  _mens_entrega_itens_selecionados = [];
 
   document.getElementById('mens-ent-plano-id').value     = p.id;
   document.getElementById('mens-ent-cliente').textContent = p.clientes?.nome || '—';
@@ -293,6 +311,8 @@ function mensAbrirEntrega(planoId) {
   document.getElementById('mens-ent-qtd').value = 1;
   document.getElementById('mens-ent-qtd').max   = p.quantidade_restante;
   document.getElementById('mens-ent-obs').value = '';
+  const buscaEl = document.getElementById('mens-ent-busca-prod');
+  if (buscaEl) buscaEl.value = '';
 
   const elValor = document.getElementById('mens-ent-valor-unit');
   if (elValor) {
@@ -300,34 +320,92 @@ function mensAbrirEntrega(planoId) {
     elValor.textContent = `Gs ${Math.round(valorUnit).toLocaleString('es-PY')} /un`;
   }
 
+  // Renderiza lista de produtos com checkboxes
+  _mensRenderEntregaProdutos('');
+  _mensRenderEntregaChips();
+
   document.getElementById('modal-mens-entrega').style.display = 'flex';
-  setTimeout(() => document.getElementById('mens-ent-qtd')?.focus(), 100);
+  setTimeout(() => document.getElementById('mens-ent-busca-prod')?.focus(), 100);
+}
+
+function _mensRenderEntregaProdutos(filtro) {
+  const cont = document.getElementById('mens-ent-lista-prods');
+  if (!cont) return;
+  const q = (filtro || '').toLowerCase().trim();
+  const prods = _mens_produtos.filter(pr => !q || pr.nome.toLowerCase().includes(q));
+
+  if (!prods.length) {
+    cont.innerHTML = '<div style="padding:12px;text-align:center;color:#aaa;font-size:0.82rem">Nenhum produto encontrado</div>';
+    return;
+  }
+
+  cont.innerHTML = prods.map(pr => {
+    const checked = _mens_entrega_itens_selecionados.includes(pr.nome);
+    const escapedName = pr.nome.replace(/'/g, "\\'");
+    return `<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:0.88rem;${checked ? 'background:#f0fdf4' : ''}">
+      <input type="checkbox" ${checked ? 'checked' : ''}
+        onchange="mensToggleEntregaItem('${escapedName}', this.checked)"
+        style="width:16px;height:16px;accent-color:#1a7a2e">
+      <span>${pr.nome}</span>
+      ${pr.categoria_slug ? '<span style="margin-left:auto;font-size:0.72rem;color:#9ca3af">' + pr.categoria_slug + '</span>' : ''}
+    </label>`;
+  }).join('');
+}
+
+function mensFilterEntregaProdutos(val) {
+  _mensRenderEntregaProdutos(val);
+}
+
+function mensToggleEntregaItem(nome, checked) {
+  if (checked && !_mens_entrega_itens_selecionados.includes(nome)) {
+    _mens_entrega_itens_selecionados.push(nome);
+  } else if (!checked) {
+    _mens_entrega_itens_selecionados = _mens_entrega_itens_selecionados.filter(n => n !== nome);
+  }
+  _mensRenderEntregaChips();
+  const busca = document.getElementById('mens-ent-busca-prod')?.value || '';
+  _mensRenderEntregaProdutos(busca);
+}
+
+function _mensRenderEntregaChips() {
+  const cont = document.getElementById('mens-ent-itens-selecionados');
+  if (!cont) return;
+  if (!_mens_entrega_itens_selecionados.length) { cont.innerHTML = ''; return; }
+  cont.innerHTML = _mens_entrega_itens_selecionados.map(nome => {
+    const escapedName = nome.replace(/'/g, "\\'");
+    return `<span style="display:inline-flex;align-items:center;gap:4px;background:#dcfce7;color:#166534;padding:4px 10px;border-radius:14px;font-size:0.78rem;font-weight:600">
+      ${nome}
+      <button onclick="mensToggleEntregaItem('${escapedName}', false)"
+        style="background:none;border:none;color:#166534;cursor:pointer;font-size:0.9rem;line-height:1;padding:0">&times;</button>
+    </span>`;
+  }).join('');
 }
 
 async function mensSalvarEntrega() {
   const planoId = parseInt(document.getElementById('mens-ent-plano-id').value);
   const qtd     = parseInt(document.getElementById('mens-ent-qtd').value) || 1;
   const obs     = document.getElementById('mens-ent-obs').value.trim();
+  const itensDoDia = [..._mens_entrega_itens_selecionados];
 
   const p = _mens_planos.find(p => p.id === planoId);
   if (!p) return;
 
-  if (qtd <= 0) {
-    alert('Informe uma quantidade válida.');
-    return;
-  }
+  if (qtd <= 0) { alert('Informe uma quantidade válida.'); return; }
   if (qtd > p.quantidade_restante) {
     alert(`Saldo insuficiente. Máximo disponível: ${p.quantidade_restante} itens.`);
     return;
   }
 
-  // Registra entrega — NÃO entra no financeiro (tabela separada, sem inserir em 'pedidos')
+  // Monta texto do produto: itens selecionados ou nome do plano
+  const produtoEntrega = itensDoDia.length > 0 ? itensDoDia.join(', ') : p.produto_nome;
+
+  // Registra entrega — NÃO entra no financeiro
   const { data: entrega, error: errEnt } = await supa
     .from('mensalista_entregas')
     .insert([{
       plano_id:     planoId,
       cliente_id:   p.cliente_id,
-      produto_nome: p.produto_nome,
+      produto_nome: produtoEntrega,
       quantidade:   qtd,
       observacoes:  obs || null,
     }])
@@ -346,8 +424,9 @@ async function mensSalvarEntrega() {
   if (errUp) { alert('Erro ao atualizar saldo: ' + errUp.message); return; }
 
   fecharModal('modal-mens-entrega');
+  _mens_entrega_itens_selecionados = [];
 
-  // Atualiza estado local imediatamente
+  // Atualiza estado local
   p.quantidade_restante = novoRestante;
   _mensRenderKPIs();
   mensRenderPlanos();
@@ -355,18 +434,20 @@ async function mensSalvarEntrega() {
   // Pergunta se quer imprimir comprovante
   const imprimir = confirm(
     `✅ Entrega registrada com sucesso!\n` +
+    (itensDoDia.length > 0 ? `Itens: ${itensDoDia.join(', ')}\n` : '') +
     `Saldo restante: ${novoRestante} itens\n\n` +
     `Deseja imprimir o comprovante para o cliente assinar?`
   );
   if (imprimir) {
-    mensImprimirComprovante(p, qtd, obs, entrega?.id, entrega?.created_at, novoRestante);
+    mensImprimirComprovante(p, qtd, obs, entrega?.id, entrega?.created_at, novoRestante, itensDoDia);
   }
 }
 
 // ──────────────────────────────────────────────────────────────
 //  IMPRIMIR COMPROVANTE
 // ──────────────────────────────────────────────────────────────
-function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoApos) {
+function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoApos, itensDoDia) {
+  const itensEscolhidos = Array.isArray(itensDoDia) && itensDoDia.length > 0 ? itensDoDia : [];
   const cliente  = plano.clientes || {};
   const dataFmt  = dataEntrega
     ? new Date(dataEntrega).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
@@ -422,6 +503,7 @@ function mensImprimirComprovante(plano, qtd, obs, entregaId, dataEntrega, saldoA
   <div class="row"><span>Tel:</span><b>${cliente.telefone || '—'}</b></div>
   <hr>
   <div class="row"><span>Plano / Item:</span><b>${plano.produto_nome}</b></div>
+  ${itensEscolhidos.length > 0 ? '<div style="font-size:12px;margin:4px 0"><b>Itens do dia:</b><br>' + itensEscolhidos.map(i => '· ' + i).join('<br>') + '</div>' : ''}
   <div class="row"><span>Qtd entregue:</span><b>${qtd} ${qtd === 1 ? 'unidade' : 'unidades'}</b></div>
   ${obs ? `<div class="row"><span>Obs:</span><span>${obs}</span></div>` : ''}
   <div class="row"><span>Valor do plano:</span><b>Gs ${Math.round(plano.valor_plano || 0).toLocaleString('es-PY')}</b></div>
