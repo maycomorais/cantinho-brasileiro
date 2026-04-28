@@ -6361,7 +6361,17 @@ async function carregarRankingProdutos() {
   const cnt = {};
   (data || []).forEach((ped) => {
     (Array.isArray(ped.itens) ? ped.itens : []).forEach((item) => {
-      const n = item.nome || item.n || "Produto";
+      let n = item.nome || item.n || "Produto";
+      if (item.variacao && item.variacao !== n && item.variacao !== 'Padrão' && item.variacao !== 'Montado') {
+        n += ` ▸ ${item.variacao}`;
+      }
+      const montagemRaw = item.montagem || item.m || [];
+      if (Array.isArray(montagemRaw) && montagemRaw.length > 0) {
+        const sabores = montagemRaw.map(l => (typeof l === 'object' && l !== null) ? (l.nome || JSON.stringify(l)) : String(l)).filter(Boolean);
+        if (sabores.length > 0) {
+          n += ` (${sabores.join(' / ')})`;
+        }
+      }
       const q = parseInt(item.qtd || item.q || 1);
       cnt[n] = (cnt[n] || 0) + q;
     });
@@ -8068,6 +8078,13 @@ function atualizarCarrinhoPDV() {
     carrinhoPDV.forEach((item, idx) => {
       total += item.preco * item.qtd;
       const row = document.createElement("tr");
+      const actions = `
+        <div style="margin-top:6px; display:flex; gap:6px;">
+          <button class="pdv-item-obs" onclick="pdvEditarObs(${idx})" style="display:flex;align-items:center;gap:3px;font-size:0.65rem;padding:3px 6px;border:1px solid #ddd;border-radius:4px;background:#fff;color:#555;cursor:pointer;font-weight:600;"><i class="fas fa-edit"></i> OBS</button>
+          <button class="pdv-item-remove" onclick="removerItemPDV(${idx})" style="display:flex;align-items:center;gap:3px;font-size:0.65rem;padding:3px 6px;border:1px solid #f5c6c6;border-radius:4px;background:#fffbfb;color:#c0392b;cursor:pointer;font-weight:600;"><i class="fas fa-trash"></i> ELIMINAR</button>
+        </div>
+      `;
+
       if (item._isKg) {
         const g = item.peso_gramas || 0;
         const pesofmt =
@@ -8077,11 +8094,18 @@ function atualizarCarrinhoPDV() {
                 .replace(/\.?0+$/, "")
                 .replace(".", ",") + "kg"
             : g + "g";
+        const obsLabel = item.obs
+          ? `<div style="font-size:0.68rem;color:#c0392b;margin-top:2px">⚠ ${item.obs}</div>`
+          : "";
         row.innerHTML = `
-          <td class="pdv-item-nome"><span style="color:#0891b2;font-size:0.72rem">⚖️ ${pesofmt}</span> ${item.nome}</td>
-          <td class="tc" style="color:#0891b2;font-size:0.7rem">kg</td>
-          <td class="tr" style="font-size:0.7rem;color:#666">—</td>
-          <td class="tr">Gs ${item.preco.toLocaleString("es-PY")} <button class="pdv-item-remove" onclick="removerItemPDV(${idx})">✕</button></td>`;
+          <td class="pdv-item-nome" style="padding-bottom:8px">
+            <span style="color:#0891b2;font-size:0.72rem">⚖️ ${pesofmt}</span> ${item.nome}
+            ${obsLabel}
+            ${actions}
+          </td>
+          <td class="tc" style="color:#0891b2;font-size:0.7rem;vertical-align:top;padding-top:6px">kg</td>
+          <td class="tr" style="font-size:0.7rem;color:#666;vertical-align:top;padding-top:6px">—</td>
+          <td class="tr" style="vertical-align:top;padding-top:6px">Gs ${item.preco.toLocaleString("es-PY")}</td>`;
       } else {
         const variacaoLabel = item.variacao
           ? `<div style="font-size:0.68rem;color:#e67e22;font-weight:600">▸ ${item.variacao}</div>`
@@ -8090,13 +8114,16 @@ function atualizarCarrinhoPDV() {
           ? item.montagem.map(m => `<div style="font-size:0.67rem;color:#555">· ${typeof m === "object" ? (m.nome || "") : m}</div>`).join("")
           : "";
         const obsLabel = item.obs
-          ? `<div style="font-size:0.68rem;color:#c0392b">⚠ ${item.obs}</div>`
+          ? `<div style="font-size:0.68rem;color:#c0392b;margin-top:2px">⚠ ${item.obs}</div>`
           : "";
         row.innerHTML = `
-          <td class="pdv-item-nome">${item.nome}${variacaoLabel}${montagemLabel}${obsLabel}</td>
-          <td class="tc pdv-item-qtd">${item.qtd}×</td>
-          <td class="tr" style="font-size:0.7rem;color:#666">Gs ${item.preco.toLocaleString("es-PY")}</td>
-          <td class="tr">Gs ${(item.preco * item.qtd).toLocaleString("es-PY")} <button class="pdv-item-remove" onclick="removerItemPDV(${idx})">✕</button><button class="pdv-item-obs" onclick="pdvEditarObs(${idx})" title="Observação">✎</button></td>`;
+          <td class="pdv-item-nome" style="padding-bottom:8px">
+            ${item.nome}${variacaoLabel}${montagemLabel}${obsLabel}
+            ${actions}
+          </td>
+          <td class="tc pdv-item-qtd" style="vertical-align:top;padding-top:6px">${item.qtd}×</td>
+          <td class="tr" style="font-size:0.7rem;color:#666;vertical-align:top;padding-top:6px">Gs ${item.preco.toLocaleString("es-PY")}</td>
+          <td class="tr" style="vertical-align:top;padding-top:6px">Gs ${(item.preco * item.qtd).toLocaleString("es-PY")}</td>`;
       }
       lista.appendChild(row);
     });

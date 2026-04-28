@@ -94,9 +94,17 @@ function _estRender() {
   _est_pedidos.forEach(pedido => {
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     itens.forEach(item => {
-      const nome     = item.variacao
-        ? `${item.nome || item.n || 'Desconhecido'} ▸ ${item.variacao}`
-        : (item.nome || item.n || 'Desconhecido');
+      let nome = item.nome || item.n || 'Desconhecido';
+      if (item.variacao && item.variacao !== nome && item.variacao !== 'Padrão' && item.variacao !== 'Montado') {
+        nome += ` ▸ ${item.variacao}`;
+      }
+      const montagemRaw = item.montagem || item.m || [];
+      if (Array.isArray(montagemRaw) && montagemRaw.length > 0) {
+        const sabores = montagemRaw.map(l => (typeof l === 'object' && l !== null) ? (l.nome || JSON.stringify(l)) : String(l)).filter(Boolean);
+        if (sabores.length > 0) {
+          nome += ` (${sabores.join(' / ')})`;
+        }
+      }
       const isKg     = item._isKg || item.peso_gramas > 0;
       const qtd      = isKg ? 0 : (item.qtd || item.q || 1);
       const pesoG    = isKg ? (item.peso_gramas || 0) : 0;
