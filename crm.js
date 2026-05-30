@@ -106,7 +106,7 @@ function crmRenderClientes() {
 
   if (!lista.length) {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#aaa;padding:20px">
-      ${_crm_abaAtiva === 'aniversariantes' ? '🎂 Nenhum aniversariante esta semana' : 'Nenhum cliente encontrado'}
+      ${_crm_abaAtiva === 'aniversariantes' ? t('crm.nenhum_aniversariante', '🎂 Ningún cumpleañero esta semana') : t('crm.nenhum_cliente', 'Ningún cliente encontrado')}
     </td></tr>`;
     return;
   }
@@ -114,9 +114,9 @@ function crmRenderClientes() {
   tbody.innerHTML = lista.map(c => {
     const { ehHoje, ehSemana, label } = _crmAniversario(c.data_nascimento);
     const badge = ehHoje
-      ? '<span style="background:#ff9800;color:#fff;padding:2px 8px;border-radius:10px;font-size:0.72rem;font-weight:700">🎂 HOJE</span>'
+      ? `<span style="background:#ff9800;color:#fff;padding:2px 8px;border-radius:10px;font-size:0.72rem;font-weight:700">${t('geral.hoje_excl', '¡HOY!')}</span>`
       : ehSemana
-        ? '<span style="background:#4caf50;color:#fff;padding:2px 8px;border-radius:10px;font-size:0.72rem">🎁 Esta semana</span>'
+        ? `<span style="background:#4caf50;color:#fff;padding:2px 8px;border-radius:10px;font-size:0.72rem">${t('geral.esta_semana', 'Esta semana')}</span>`
         : '';
 
     const saldo = c.saldo_cashback || 0;
@@ -173,7 +173,7 @@ function _crmAniversario(dataNasc) {
     if (check.getMonth() === mesDia && check.getDate() === dia) { ehSemana = true; break; }
   }
 
-  const label = nasc.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const label = nasc.toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit' });
   return { ehHoje, ehSemana, label };
 }
 
@@ -185,7 +185,7 @@ function crmRenderAniversariantes() {
     return ehHoje || ehSemana;
   });
   if (!lista.length) {
-    cont.innerHTML = '<p style="color:#aaa;font-size:0.83rem;text-align:center;padding:10px">Nenhum aniversariante esta semana 🎉</p>';
+    cont.innerHTML = `<p style="color:#aaa;font-size:0.83rem;text-align:center;padding:10px">${t('crm.nenhum_aniversariante_semana', 'Ningún cumpleañero esta semana 🎉')}</p>`;
     return;
   }
   cont.innerHTML = lista.map(c => {
@@ -195,7 +195,7 @@ function crmRenderAniversariantes() {
         <b>${ehHoje ? '🎂' : '🎁'} ${c.nome}</b>
         <div style="font-size:0.78rem;color:#888">${c.telefone || ''}</div>
       </div>
-      ${ehHoje ? '<span style="background:#ff9800;color:#fff;padding:2px 7px;border-radius:8px;font-size:0.72rem;font-weight:700">HOJE!</span>' : ''}
+      ${ehHoje ? `<span style="background:#ff9800;color:#fff;padding:2px 7px;border-radius:8px;font-size:0.72rem;font-weight:700">${t('geral.hoje_excl', '¡HOY!')}</span>` : ''}
     </div>`;
   }).join('');
 }
@@ -219,26 +219,24 @@ async function crmSalvarCliente() {
   const nasc  = document.getElementById('crm-cli-nasc').value || null;
   const saldo = parseFloat(document.getElementById('crm-cli-saldo').value) || 0;
 
-  if (!nome) { alert('Informe o nome do cliente.'); return; }
-  if (!tel)  { alert('Informe o telefone/WhatsApp.'); return; }
+  if (!nome) { alert(t('crm.alerta_nome', 'Ingrese el nombre del cliente.')); return; }
+  if (!tel)  { alert(t('crm.alerta_tel', 'Ingrese el teléfono/WhatsApp.')); return; }
 
-  const payload = { nome, telefone: tel };
-  if (nasc) payload.data_nascimento = nasc;
-  if (saldo !== undefined && saldo !== null) payload.saldo_cashback = saldo;
+  const payload = { nome, telefone: tel, data_nascimento: nasc, saldo_cashback: saldo };
 
   const { error } = id
     ? await supa.from('clientes').update(payload).eq('id', id)
     : await supa.from('clientes').insert([payload]);
 
-  if (error) { alert('Erro ao salvar: ' + error.message); return; }
+  if (error) { alert(t('crm.erro_salvar', 'Error al guardar: ') + error.message); return; }
   fecharModal('modal-crm-cliente');
   crmCarregarClientes();
 }
 
 async function crmExcluirCliente(id) {
-  if (!confirm('Excluir este cliente e todo o histórico de cashback?')) return;
+  if (!confirm(t('crm.confirm_excluir', '¿Eliminar este cliente y todo el historial de cashback?'))) return;
   const { error } = await supa.from('clientes').delete().eq('id', id);
-  if (error) { alert('Erro: ' + error.message); return; }
+  if (error) { alert(t('crm.erro_excluir', 'Error: ') + error.message); return; }
   crmCarregarClientes();
 }
 
@@ -252,18 +250,18 @@ async function crmVerHistorico(clienteId) {
     .order('created_at', { ascending: false })
     .limit(30);
 
-  const linhas = (data || []).map(t => {
-    const corTipo  = t.tipo === 'credito' ? '#1a7a2e' : '#e74c3c';
-    const sinais   = t.tipo === 'credito' ? '+' : '−';
-    const exp      = t.expira_em ? new Date(t.expira_em).toLocaleDateString('pt-BR') : '—';
-    const vencido  = t.expira_em && new Date(t.expira_em) < new Date() && !t.usado;
+  const linhas = (data || []).map(tx => {
+    const corTipo  = tx.tipo === 'credito' ? '#1a7a2e' : '#e74c3c';
+    const sinais   = tx.tipo === 'credito' ? '+' : '−';
+    const exp      = tx.expira_em ? new Date(tx.expira_em).toLocaleDateString('es-PY') : '—';
+    const vencido  = tx.expira_em && new Date(tx.expira_em) < new Date() && !tx.usado;
     return `<tr ${vencido ? 'style="opacity:0.5"' : ''}>
-      <td style="font-size:0.8rem;color:#888">${new Date(t.created_at).toLocaleDateString('pt-BR')}</td>
-      <td style="font-weight:700;color:${corTipo}">${sinais} Gs ${Math.round(t.valor).toLocaleString('es-PY')}</td>
+      <td style="font-size:0.8rem;color:#888">${new Date(tx.created_at).toLocaleDateString('es-PY')}</td>
+      <td style="font-weight:700;color:${corTipo}">${sinais} Gs ${Math.round(tx.valor).toLocaleString('es-PY')}</td>
       <td style="font-size:0.8rem;color:#555">${exp}</td>
-      <td>${t.usado ? '<span style="color:#aaa">Usado</span>' : vencido ? '<span style="color:#e74c3c">Expirado</span>' : '<span style="color:#27ae60">Ativo</span>'}</td>
+      <td>${tx.usado ? '<span style="color:#aaa">' + t('geral.usado', 'Usado') + '</span>' : vencido ? '<span style="color:#e74c3c">' + t('geral.expirado', 'Expirado') + '</span>' : '<span style="color:#27ae60">' + t('geral.ativo', 'Activo') + '</span>'}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:10px">Sem histórico</td></tr>';
+  }).join('') || `<tr><td colspan="4" style="text-align:center;color:#aaa;padding:10px">${t('crm.sem_historico', 'Sin historial')}</td></tr>`;
 
   document.getElementById('hist-cli-nome').textContent  = cliente?.nome || '';
   document.getElementById('hist-cli-saldo').textContent = `Gs ${Math.round(cliente?.saldo_cashback || 0).toLocaleString('es-PY')}`;
@@ -418,7 +416,7 @@ function pdvToggleCashback() {
 function _pdvAtualizarBtnCash() {
   const btn = document.getElementById('pdv-btn-usar-cash');
   if (!btn) return;
-  btn.textContent = _pdvCashbackUsando ? '✅ Cashback aplicado' : '💰 Usar Cashback';
+  btn.textContent = _pdvCashbackUsando ? t('crm.cashback_aplicado', '✅ Cashback aplicado') : t('crm.usar_cashback', '💰 Usar Cashback');
   btn.style.background = _pdvCashbackUsando ? '#27ae60' : '#ff9800';
 }
 
@@ -442,10 +440,10 @@ async function crmSalvarConfig() {
     .update({ cashback_percentual: pct, cashback_validade_dias: val })
     .gt('id', 0);
 
-  if (error) { alert('Erro ao salvar: ' + error.message); return; }
+  if (error) { alert(t('crm.erro_salvar', 'Error al guardar: ') + error.message); return; }
   _crm_cfg.cashback_percentual   = pct;
   _crm_cfg.cashback_validade_dias = val;
-  alert('✅ Configurações de cashback salvas!');
+  alert(t('crm.config_salva', '✅ ¡Configuración de cashback guardada!'));
 }
 
 // Busca de clientes (filtro)

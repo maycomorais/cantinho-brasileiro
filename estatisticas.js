@@ -94,17 +94,7 @@ function _estRender() {
   _est_pedidos.forEach(pedido => {
     const itens = Array.isArray(pedido.itens) ? pedido.itens : [];
     itens.forEach(item => {
-      let nome = item.nome || item.n || 'Desconhecido';
-      if (item.variacao && item.variacao !== nome && item.variacao !== 'Padrão' && item.variacao !== 'Montado') {
-        nome += ` ▸ ${item.variacao}`;
-      }
-      const montagemRaw = item.montagem || item.m || [];
-      if (Array.isArray(montagemRaw) && montagemRaw.length > 0) {
-        const sabores = montagemRaw.map(l => (typeof l === 'object' && l !== null) ? (l.nome || JSON.stringify(l)) : String(l)).filter(Boolean);
-        if (sabores.length > 0) {
-          nome += ` (${sabores.join(' / ')})`;
-        }
-      }
+      const nome     = item.nome || item.n || t('est.desconocido', 'Desconhecido');
       const isKg     = item._isKg || item.peso_gramas > 0;
       const qtd      = isKg ? 0 : (item.qtd || item.q || 1);
       const pesoG    = isKg ? (item.peso_gramas || 0) : 0;
@@ -177,12 +167,12 @@ function _estRenderTabela(produtos) {
   if (!tbody) return;
 
   if (!produtos.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px">Nenhum dado no período</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px">' + t('est.ningun_dado', 'Nenhum dado no período') + '</td></tr>';
     return;
   }
 
-  // Ordena por faturamento decrescente
-  const sorted = [...produtos].sort((a, b) => b.faturamento - a.faturamento);
+  // Ordena alfabeticamente
+  const sorted = [...produtos].sort((a, b) => a.nome.localeCompare(b.nome));
 
   tbody.innerHTML = sorted.map(p => {
     const qtdExib = p.unidade === 'kg'
@@ -224,7 +214,7 @@ function _estRenderGrafico(produtos) {
     data: {
       labels: top.map(p => p.nome),
       datasets: [{
-        label: 'Faturamento (Gs)',
+        label: t('est.facturacion_grafico', 'Faturamento (Gs)'),
         data:  top.map(p => Math.round(p.faturamento)),
         backgroundColor: '#1a7a2e',
         borderRadius: 6,
@@ -263,7 +253,7 @@ async function _estPopularCategorias() {
   const { data } = await supa.from('categorias').select('slug, nome').order('nome');
   const sel = document.getElementById('est-filtro-cat');
   if (!sel || !data) return;
-  sel.innerHTML = '<option value="">Todas as categorias</option>' +
+  sel.innerHTML = '<option value="">' + t('est.todas_opcao', 'Todas') + '</option>' +
     data.map(c => `<option value="${c.slug}">${c.nome}</option>`).join('');
 }
 
