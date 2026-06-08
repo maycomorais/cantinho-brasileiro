@@ -6416,7 +6416,7 @@ async function salvarConfiguracoes() {
   };
   const dados = {
     loja_aberta: g("cfg-aberta") === "true",
-    cotacao_real: parseFloat(g("cfg-cotacao")) || 1100,
+    cotacao_real: parseFloat(g("cfg-cotacao")) || 1050,
     banner_produto_id: parseInt(g("cfg-banner-id")) || null,
     banner_imagem: g("cfg-banner-img") || "",
     banner_desconto_tipo: g("cfg-banner-desc-tipo") || null,
@@ -7354,7 +7354,7 @@ async function wlSalvarNovaSenha() {
 let carrinhoPDV = [];
 let produtosCachePDV = [];
 // Cotação carregada das configurações (fallback 1100)
-let _cotacaoPDV = 1100;
+let _cotacaoPDV = 1050;
 let _taxaDebitoPDV = 1.99;
 let _taxaCreditoPDV = 4.98;
 let _cartaoBRTipoPDV = "debito";
@@ -11973,7 +11973,7 @@ async function _obSalvar() {
 
     // Numérico
     if (payload.cotacao_real)
-      payload.cotacao_real = parseFloat(payload.cotacao_real) || 1100;
+      payload.cotacao_real = parseFloat(payload.cotacao_real) || 1050;
     if (payload.coord_lat)
       payload.coord_lat = parseFloat(payload.coord_lat) || 0;
     if (payload.coord_lng)
