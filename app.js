@@ -3507,14 +3507,7 @@ async function enviarZap() {
         : null,
     };
 
-    const response = await fetch(`${_SUPABASE_URL}/functions/v1/validar-pedido`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'apikey': _SUPABASE_KEY // chave anônima do projeto
-      },
-      body: JSON.stringify(payload)
-    });
+    
 
     // Tenta INSERT; se falhar por coluna inexistente (dados_factura), faz fallback sem ela
     let payloadFinal = { ...pedidoDb };
