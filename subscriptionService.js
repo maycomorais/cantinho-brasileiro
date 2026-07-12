@@ -1,6 +1,13 @@
 // subscriptionService.js
 // Todas as queries Supabase relacionadas à assinatura.
 // Depende de: window.supa (cliente Supabase já inicializado)
+//
+// ── ALTERAÇÕES NESTA REVISÃO ─────────────────────────────────
+// Nova função liberarMaisUmDia() — grava assinaturas.liberado_ate
+// e assinaturas.liberado_por, usados pelo botão "Liberar +1 dia".
+// Requer migração SQL (rodar uma vez no Supabase):
+//   ALTER TABLE assinaturas ADD COLUMN IF NOT EXISTS liberado_ate DATE;
+//   ALTER TABLE assinaturas ADD COLUMN IF NOT EXISTS liberado_por TEXT;
 
 'use strict';
 
@@ -121,6 +128,27 @@ const SubscriptionService = (() => {
     return { ok: true };
   }
 
+  /**
+   * Concede uma liberação temporária ("+1 dia"), que passa a valer
+   * imediatamente e tem prioridade sobre bloqueio manual ou automático
+   * até a data informada (ver calcularStatusAssinatura em
+   * subscriptionDateUtils.js).
+   * @param {string} novaDataISO  — 'YYYY-MM-DD', calculada por calcularNovaLiberacao()
+   * @param {string} por          — email/nome do operador que liberou
+   * @returns {Promise<{ok:boolean, error?:string}>}
+   */
+  async function liberarMaisUmDia(novaDataISO, por) {
+    const { error } = await supa
+      .from('assinaturas')
+      .update({
+        liberado_ate: novaDataISO,
+        liberado_por: por,
+      })
+      .eq('id', 1);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  }
+
   // ─────────────────────────────────────────────────────────────
   // REALTIME (listener para propagar bloqueio em tempo real)
   // ─────────────────────────────────────────────────────────────
@@ -147,6 +175,7 @@ const SubscriptionService = (() => {
     salvarConfigAssinatura,
     confirmarPagamento,
     alternarBloqueio,
+    liberarMaisUmDia,
     assinarMudancas,
   };
 })();

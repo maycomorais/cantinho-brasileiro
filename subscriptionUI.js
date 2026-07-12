@@ -1,6 +1,14 @@
 // subscriptionUI.js
 // Barra de alerta global + tela de bloqueio + inicialização.
 // Depende de: subscriptionDateUtils.js, subscriptionService.js
+//
+// ── ALTERAÇÕES NESTA REVISÃO ─────────────────────────────────
+// Adicionado suporte visual ao novo status 'liberado_manual'
+// (cor, ícone e mensagem da barra), gerado quando o botão
+// "Liberar +1 dia" está ativo (ver subscriptionDateUtils.js).
+// Nenhuma mudança de lógica em inicializar() foi necessária:
+// como 'liberado_manual' !== 'bloqueado', ele já cai naturalmente
+// no branch "else { renderizarBarra(statusObj) }".
 
 'use strict';
 
@@ -12,6 +20,7 @@ const SubscriptionUI = (() => {
 
   const CORES = {
     em_dia:          null,                              // sem barra
+    liberado_manual: { bg: '#dbeafe', borda: '#60a5fa', texto: '#1e3a8a', icone: '🕐' },
     alerta_verde:    { bg: '#d1fae5', borda: '#34d399', texto: '#065f46', icone: '✅' },
     alerta_amarelo:  { bg: '#fef9c3', borda: '#facc15', texto: '#78350f', icone: '⚠️' },
     alerta_laranja:  { bg: '#ffedd5', borda: '#fb923c', texto: '#7c2d12', icone: '🔔' },
@@ -24,13 +33,15 @@ const SubscriptionUI = (() => {
   // ─────────────────────────────────────────────────────────────
 
   function _mensagem(statusObj) {
-    const { status, diasParaVenc, diasParaBloc, dataVenc } = statusObj;
+    const { status, diasParaVenc, diasParaBloc, dataVenc, liberadoAte } = statusObj;
     const { formatarData } = window.SubscriptionDateUtils;
     const dataFmt = formatarData(dataVenc);
 
     const translate = (key, fallback) => (typeof t !== 'undefined' ? t(key, fallback) : fallback);
 
     switch (status) {
+      case 'liberado_manual':
+        return translate('sub.barra_liberado', `Acesso liberado manualmente até <strong>{data}</strong>.`).replace('{data}', formatarData(liberadoAte));
       case 'alerta_verde':
         return translate('sub.barra_vence', `O pagamento da mensalidade vence no dia <strong>{data}</strong>.`).replace('{data}', dataFmt);
       case 'alerta_amarelo':
