@@ -1585,7 +1585,14 @@ async function imprimirPedido(id) {
     .replace(/=+$/, "");
 
   // Abre a janela de impressão
-  window.open(`imprimir.html?d=${base64}`, "Print", "width=420,height=700");
+  // Nome único por pedido — evita que o navegador/WebView reaproveite uma
+  // janela "Print" já aberta e reimprima dados travados de um pedido antigo
+  // (window.onload não roda de novo se só a query string muda na mesma janela)
+  window.open(
+    `imprimir.html?d=${base64}`,
+    `Print_${id}_${Date.now()}`,
+    "width=420,height=700",
+  );
 }
 
 // =========================================
@@ -10298,7 +10305,7 @@ async function salvarPedidoBalcao() {
       .replace(/=+$/, "");
     window.open(
       `imprimir.html?d=${base64}`,
-      "PrintPDV",
+      `PrintPDV_${novoPedido.id}_${Date.now()}`,
       "width=400,height=600",
     );
   }
@@ -10310,6 +10317,12 @@ async function salvarPedidoBalcao() {
   // Reset tipo entrega e campos de delivery
   const tipoSelPDV = document.getElementById("balcao-tipo-entrega");
   if (tipoSelPDV) tipoSelPDV.value = "balcao";
+  // Reset visual das abas — sem isso a aba "Delivery/Retirada" clicada no
+  // pedido anterior continuava destacada mesmo com o valor já voltando pra
+  // "balcao", confundindo quem está no caixa sobre o tipo do próximo pedido
+  document.querySelectorAll(".pdv-tipo-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tipo === "balcao");
+  });
   const endPDV = document.getElementById("balcao-endereco");
   if (endPDV) endPDV.value = "";
   const geoPDVLat = document.getElementById("balcao-geo-lat");
