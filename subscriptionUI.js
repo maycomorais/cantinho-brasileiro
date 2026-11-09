@@ -228,9 +228,20 @@ const SubscriptionUI = (() => {
   function exibirTelaBloqueio(contatoFone = '', contatoNome = 'Suporte') {
     _injetarEstilos();
 
-    // Oculta todo o conteúdo existente
+    // Oculta todo o conteúdo existente — mas primeiro guarda o display
+    // inline original de cada elemento, pra poder devolver exatamente
+    // esse valor depois (ver removerTelaBloqueio). Sem essa guarda,
+    // qualquer overlay que já estava escondido via JS (ex: o overlay
+    // de contrato, escondido com `overlay.style.display = 'none'`
+    // logo após ser assinado) reaparecia sozinho no desbloqueio,
+    // porque "zerar" o style inline faz o elemento cair no display
+    // padrão do CSS — que pra um modal costuma ser 'flex'/'block'.
     document.querySelectorAll('body > *').forEach(el => {
-      if (el.id !== 'subscription-block-screen') el.style.display = 'none';
+      if (el.id === 'subscription-block-screen') return;
+      if (el.dataset._subDisplayOriginal === undefined) {
+        el.dataset._subDisplayOriginal = el.style.display || '__unset__';
+      }
+      el.style.display = 'none';
     });
 
     // Remove tela anterior se existir
@@ -273,8 +284,14 @@ const SubscriptionUI = (() => {
   function removerTelaBloqueio() {
     const screen = document.getElementById('subscription-block-screen');
     if (screen) screen.remove();
+    // Restaura o display EXATO de antes (guardado em exibirTelaBloqueio),
+    // não um valor em branco — é isso que evita reabrir overlays que já
+    // estavam ocultos por conta própria (ex: contrato já assinado).
     document.querySelectorAll('body > *').forEach(el => {
-      el.style.display = '';
+      const original = el.dataset._subDisplayOriginal;
+      if (original === undefined) return; // elemento não foi tocado por nós
+      el.style.display = (original === '__unset__') ? '' : original;
+      delete el.dataset._subDisplayOriginal;
     });
   }
 
