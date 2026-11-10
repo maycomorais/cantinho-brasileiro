@@ -3393,43 +3393,54 @@ async function carregarHistoricoFechamentos() {
  */
 async function _calcularResumoSessaoLegado(sessao, fechadoEmOverride) {
   const fimJanela = fechadoEmOverride || sessao.fechado_em;
-  const { data: pedidosData } = await supa
-    .from("pedidos")
-    .select("*")
-    .neq("status", "cancelado")
-    .gte("created_at", sessao.aberto_em)
-    .lte("created_at", fimJanela);
-  const peds = pedidosData || [];
 
+  // 1. Descobrir o ID do usuário (garcom_id) baseado no e-mail da sessão.
+  // Isso garante que o boletim mostre APENAS as vendas deste operador específico.
+  let _garcomIdFiltro = null;
+  if (sessao.usuario_email) {
+    const { data: _p } = await supa
+      .from("perfis_acesso")
+      .select("id")
+      .eq("email", sessao.usuario_email)
+      .maybeSingle();
+    if (_p) _garcomIdFiltro = _p.id;
+  }
+
+  let peds = [];
+  
+  // 2. Busca os pedidos filtrando pelo ID do operador
+  if (_garcomIdFiltro) {
+    const { data: pedidosData } = await supa
+      .from("pedidos")
+      .select("*")
+      .neq("status", "cancelado")
+      .gte("created_at", sessao.aberto_em)
+      .lte("created_at", fimJanela)
+      .eq("garcom_id", _garcomIdFiltro); // <-- AQUI ESTÁ O FILTRO SALVADOR
+
+    peds = pedidosData || [];
+  } else {
+    console.warn(`[CalcularResumo] Usuário não encontrado na tabela perfis_acesso: ${sessao.usuario_email}`);
+  }
+
+  // 3. Busca as movimentações de caixa (abertura, sangria, despesas, etc) desta sessão específica
   const { data: movsData } = await supa
     .from("movimentacoes_caixa")
     .select("*")
     .eq("sessao_id", sessao.id);
   const movs = movsData || [];
 
-  let faturamento = 0,
-    totalEfetivo = 0,
-    totalPix = 0,
-    totalCartao = 0,
-    totalTransf = 0,
-    totalQrCelular = 0,
-    totalQrMaquina = 0,
-    totalNaNota = 0,
-    custoEntregas = 0,
-    qtdPedidos = 0;
+  let faturamento = 0, totalEfetivo = 0, totalPix = 0, totalCartao = 0,
+    totalTransf = 0, totalQrCelular = 0, totalQrMaquina = 0, totalNaNota = 0,
+    custoEntregas = 0, qtdPedidos = 0;
 
   peds.forEach((p) => {
     const val = p.total_geral || 0;
     const pag = (p.forma_pagamento || "").toLowerCase();
     const isNaNota = pag === "nanota";
-    const isQuitado =
-      !!p.quitado_em ||
-      (p.obs_pagamento || "").toLowerCase().includes("[quitado");
+    const isQuitado = !!p.quitado_em || (p.obs_pagamento || "").toLowerCase().includes("[quitado");
 
-    if (isNaNota && !isQuitado) {
-      totalNaNota += val;
-      return;
-    }
+    if (isNaNota && !isQuitado) { totalNaNota += val; return; }
     if (pag === "mensalista") return;
 
     faturamento += val;
@@ -3444,19 +3455,16 @@ async function _calcularResumoSessaoLegado(sessao, fechadoEmOverride) {
       const m2 = (formaQuitacao || "").toLowerCase();
       if (m2.includes("pix")) totalPix += val;
       else if (m2.includes("transfer")) totalTransf += val;
-      else if (m2.includes("cartao") || m2.includes("cartão"))
-        totalCartao += val;
+      else if (m2.includes("cartao") || m2.includes("cartão")) totalCartao += val;
       else if (m2 === "qrmaquina" || m2 === "qrmarina") totalQrMaquina += val;
       else if (m2.includes("qr")) totalQrCelular += val;
       else totalEfetivo += val;
     } else if (pag.includes("pix")) totalPix += val;
     else if (pag.includes("transfer")) totalTransf += val;
-    else if (pag.includes("cartao") || pag.includes("cartão"))
-      totalCartao += val;
+    else if (pag.includes("cartao") || pag.includes("cartão") || pag.includes("tarjeta")) totalCartao += val;
     else if (pag === "qrmaquina" || pag === "qrmarina") totalQrMaquina += val;
     else if (pag.includes("qr")) totalQrCelular += val;
-    else if (pag.includes("efetivo") || pag.includes("dinheiro"))
-      totalEfetivo += val;
+    else if (pag.includes("efetivo") || pag.includes("dinheiro")) totalEfetivo += val;
 
     if (p.tipo_entrega === "delivery") {
       custoEntregas += p.frete_motoboy || TAXA_MOTOBOY || 0;
@@ -3482,8 +3490,7 @@ async function _calcularResumoSessaoLegado(sessao, fechadoEmOverride) {
     total_saidas: totalSaidas,
     total_entradas: totalEntradas,
     resultado_operacional: resultado,
-    dinheiro_na_gaveta:
-      (sessao.valor_abertura || 0) + totalEfetivo - totalSaidas,
+    dinheiro_na_gaveta: (sessao.valor_abertura || 0) + totalEfetivo - totalSaidas,
     por_forma_pagamento: {
       efetivo: totalEfetivo,
       pix: totalPix,
@@ -3493,7 +3500,7 @@ async function _calcularResumoSessaoLegado(sessao, fechadoEmOverride) {
       qr_maquina: totalQrMaquina,
       na_nota_quitado: totalNaNota,
     },
-    _calculadoAgora: true, // marca que foi recalculado, não é o valor gravado no fechamento original
+    _calculadoAgora: true,
   };
 }
 
