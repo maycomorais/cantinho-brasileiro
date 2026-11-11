@@ -2559,23 +2559,27 @@ function adicionarDoModal() {
     tipo = "montavel";
 
   // Validações por tipo
-    if (tipo === "pizza") {
+  if (tipo === "pizza") {
+    if (!_pizzaConfig.tamanhoSelecionado) {
+      alert(tt({es:"¡Seleccione el tamaño de la pizza!",pt:"Selecione o tamanho da pizza!",en:"Select the pizza size!",de:"Wählen Sie die Pizzagröße!"}));
+      return;
+    }
     const saboresOk = (_pizzaConfig.sabores || []).filter(Boolean);
-    const _tam = _pizzaConfig.tamanhoSelecionado;
-    
-    // AQUI TAMBÉM: preço da borda dinâmico
-    const precoBorda = _getPrecoBordaAtual();
-    precoFinal = _calcularBasePizza(_tam, saboresOk) + precoBorda;
-
-    variacao = _pizzaConfig.tamanhoSelecionado?.nome || "";
-    const numSab = _pizzaConfig.numSabores || 1;
-    const saboresStr = saboresOk
-      .map((s, i) => (numSab > 1 ? `${i + 1}/${numSab} ${s.nome}` : s.nome))
-      .join(" | ");
-
-    montagem = [saboresStr].filter(Boolean);
-    if (_pizzaConfig.bordaConfig)
-      montagem.push(`Borda: ${_pizzaConfig.bordaConfig.nome}`);
+    if (saboresOk.length === 0) {
+      alert(tt({es:"¡Seleccione al menos 1 sabor!",pt:"Selecione ao menos 1 sabor!",en:"Select at least 1 flavor!",de:"Wählen Sie mindestens 1 Geschmacksrichtung!"}));
+      return;
+    }
+    if (_pizzaConfig.numSabores && saboresOk.length < _pizzaConfig.numSabores) {
+      alert(
+        tt({
+          es: `Eligió ${_pizzaConfig.numSabores} sabores pero seleccionó solo ${saboresOk.length}. ¡Complete la selección!`,
+          pt: `Você escolheu ${_pizzaConfig.numSabores} sabores mas selecionou apenas ${saboresOk.length}. Complete a seleção!`,
+          en: `You chose ${_pizzaConfig.numSabores} flavors but only selected ${saboresOk.length}. Complete your selection!`,
+          de: `Sie haben ${_pizzaConfig.numSabores} Geschmacksrichtungen gewählt, aber nur ${saboresOk.length} ausgewählt. Vervollständigen Sie die Auswahl!`,
+        }),
+      );
+      return;
+    }
   }
   if (tipo === "almoco" && !prodAtual._pratoselecionado) {
     alert(tt({es:"¡Seleccione el plato!",pt:"Selecione o prato!",en:"Select the dish!",de:"Wählen Sie das Gericht!"}));
@@ -2609,7 +2613,9 @@ function adicionarDoModal() {
   // Monta descrição para o carrinho
   let montagem = [];
   let variacao = "";
-  let precoFinal = prodAtual.preco;
+  
+  // AQUI ESTAVA O ERRO: A variável foi declarada agora no topo, antes de qualquer if.
+  let precoFinal = prodAtual.preco || 0; 
 
   if (tipo === "combo_fechado") {
     const partes = _comboFechadoConfig.sabores
@@ -2635,16 +2641,11 @@ function adicionarDoModal() {
   }
 
   if (tipo === "pizza") {
-    // ─────────────────────────────────────────────────────────────
-    // PREÇO PIZZA:
-    //   Base    = tamanho selecionado (sempre — é o preço principal)
-    //   Extra   = maior preco individual dos sabores (0 se não há premium)
-    //   Borda   = preco da borda escolhida (0 se sem borda)
-    //   Total   = (Base + Extra) * qtd + Borda * qtd
-    // ─────────────────────────────────────────────────────────────
     const saboresOk = (_pizzaConfig.sabores || []).filter(Boolean);
     const _tam       = _pizzaConfig.tamanhoSelecionado;
-    const precoBorda = _pizzaConfig.bordaConfig?.preco || 0;
+    
+    // Puxa o preço da borda dinamicamente do objeto salvo
+    const precoBorda = _getPrecoBordaAtual();
     precoFinal = _calcularBasePizza(_tam, saboresOk) + precoBorda;
 
     variacao = _pizzaConfig.tamanhoSelecionado?.nome || "";
@@ -2653,7 +2654,6 @@ function adicionarDoModal() {
       .map((s, i) => (numSab > 1 ? `${i + 1}/${numSab} ${s.nome}` : s.nome))
       .join(" | ");
 
-    // montagem: string legível para exibição no carrinho/cozinha
     montagem = [saboresStr].filter(Boolean);
     if (_pizzaConfig.bordaConfig)
       montagem.push(`Borda: ${_pizzaConfig.bordaConfig.nome}`);
@@ -2669,19 +2669,16 @@ function adicionarDoModal() {
   if (tipo === "variacoes" && _variacaoSelecionada) {
     variacao = _variacaoSelecionada.nome;
     precoFinal = _variacaoSelecionada.preco || prodAtual.preco;
-    // Usa imagem da variação se disponível
     if (_variacaoSelecionada.img)
       prodAtual._variacaoImg = _variacaoSelecionada.img;
   }
 
-  // ── shake ────────────────────────────────────────────────────
   if (tipo === "shake") {
     precoFinal = (_shakeConfig.tamanho?.preco || 0) + (_shakeConfig.sabor?.preco || 0);
     variacao   = _shakeConfig.tamanho?.nome || "";
     if (_shakeConfig.sabor) montagem = [_shakeConfig.sabor.nome];
   }
 
-  // ── sorvete ──────────────────────────────────────────────────
   if (tipo === "sorvete") {
     precoFinal = _sorveteConfig.tamanho?.preco || prodAtual.preco;
     variacao   = _sorveteConfig.tamanho?.nome || "";
@@ -2692,7 +2689,6 @@ function adicionarDoModal() {
     });
   }
 
-  // ── açaí ─────────────────────────────────────────────────────
   if (tipo === "acai") {
     precoFinal = _acaiConfig.tamanho?.preco || prodAtual.preco;
     variacao   = _acaiConfig.tamanho?.nome || "";
@@ -2701,7 +2697,6 @@ function adicionarDoModal() {
     });
   }
 
-  // ── suco ─────────────────────────────────────────────────────
   if (tipo === "suco") {
     precoFinal = _sucoConfig.tamanho?.preco || prodAtual.preco;
     variacao   = _sucoConfig.tamanho?.nome || "";
@@ -2742,7 +2737,7 @@ function adicionarDoModal() {
 
   carrinho.push({
     id: Date.now(),
-    produto_id: prodAtual.id || null, // ID real do banco — necessário para desconto de estoque
+    produto_id: prodAtual.id || null,
     nome: prodAtual.nome,
     variacao: variacao || "",
     preparo: preparoEscolhido,
@@ -2751,7 +2746,7 @@ function adicionarDoModal() {
     montagem: montagem.filter(Boolean),
     obs: document.getElementById("modal-obs").value,
     img: prodAtual._variacaoImg || prodAtual.img,
-    categoria_slug: prodAtual.categoria_slug || "", // para filtro bebidas no motoboy
+    categoria_slug: prodAtual.categoria_slug || "",
     es_bebida: prodAtual.es_bebida || false,
     ...(pizzaMeta ? { pizzaMeta } : {}),
   });
