@@ -3818,45 +3818,29 @@ async function abrirRelatorio() {
 }
 
 async function carregarRelatorio() {
-  const filtroNum = document.getElementById("rel-filtro-numero")?.value?.trim();
+  const filtroNum    = document.getElementById("rel-filtro-numero")?.value?.trim();
   const filtroInicio = document.getElementById("rel-filtro-inicio")?.value;
-  const filtroFim = document.getElementById("rel-filtro-fim")?.value;
-  const _tz = 3 * 60 * 60 * 1000; // UTC-3 PY
+  const filtroFim    = document.getElementById("rel-filtro-fim")?.value;
+  const _tz          = 3 * 60 * 60 * 1000; // UTC-3 PY
   const _horaServRel = await _obterHoraServidor();
-  const agora = new Date();
-  const hojePY = new Date(agora.getTime() - _tz).toISOString().split("T")[0];
+  const agora        = new Date();
+  const hojePY       = new Date(agora.getTime() - _tz).toISOString().split("T")[0];
 
   let pedidos = [];
 
   try {
     if (filtroNum) {
-      // Busca por número exato — só 1 resultado, sem paginação necessária
-      const { data } = await supa
-        .from("pedidos")
-        .select("*")
-        .eq("id", parseInt(filtroNum))
-        .limit(1);
+      const { data } = await supa.from("pedidos").select("*").eq("id", parseInt(filtroNum)).limit(1);
       pedidos = data || [];
     } else {
       const ini = filtroInicio || hojePY;
-      const fim = filtroFim || hojePY;
+      const fim = filtroFim    || hojePY;
       const _off = 3 * 60 * 60 * 1000;
-      const utcIni = new Date(
-        new Date(ini + "T00:00:00").getTime() + _off,
-      ).toISOString();
-      const utcFim = new Date(
-        new Date(fim + "T23:59:59").getTime() + _off,
-      ).toISOString();
+      const utcIni = new Date(new Date(ini + "T00:00:00").getTime() + _off).toISOString();
+      const utcFim = new Date(new Date(fim + "T23:59:59").getTime() + _off).toISOString();
 
-      // Paginado — sem limite de 1000. Ordenado por id DESC para trazer
-      // os mais recentes primeiro em cada página.
       pedidos = await _buscarTodosPedidos(() =>
-        supa
-          .from("pedidos")
-          .select("*")
-          .gte("created_at", utcIni)
-          .lte("created_at", utcFim)
-          .order("id", { ascending: false }),
+        supa.from("pedidos").select("*").gte("created_at", utcIni).lte("created_at", utcFim).order("id", { ascending: false })
       );
     }
   } catch (e) {
@@ -3875,54 +3859,39 @@ async function carregarRelatorio() {
     return Math.floor(diff / 60) + "h " + (diff % 60) + "m";
   };
   const fmtHora = (t) =>
-    t
-      ? new Date(t).toLocaleTimeString("pt-BR", {
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "America/Asuncion",
-        })
-      : "-";
+    t ? new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Asuncion" }) : "-";
 
   const scMap = {
-    pendente: { bg: "#fff3cd", color: "#856404", label: "⏳ Pendente" },
-    em_preparo: { bg: "#ffe5d0", color: "#a63c06", label: "🔥 Em Preparo" },
-    pronto_entrega: { bg: "#d1ecf1", color: "#0c5460", label: "📦 Pronto" },
-    saiu_entrega: { bg: "#d4edda", color: "#155724", label: "🛵 Saiu" },
-    entregue: { bg: "#d4edda", color: "#155724", label: "✅ Entregue" },
-    cancelado: { bg: "#f8d7da", color: "#721c24", label: "❌ Cancelado" },
+    pendente:        { bg: "#fff3cd", color: "#856404", label: "⏳ Pendente" },
+    em_preparo:      { bg: "#ffe5d0", color: "#a63c06", label: "🔥 Em Preparo" },
+    pronto_entrega:  { bg: "#d1ecf1", color: "#0c5460", label: "📦 Pronto" },
+    saiu_entrega:    { bg: "#d4edda", color: "#155724", label: "🛵 Saiu" },
+    entregue:        { bg: "#d4edda", color: "#155724", label: "✅ Entregue" },
+    cancelado:       { bg: "#f8d7da", color: "#721c24", label: "❌ Cancelado" },
   };
 
   (pedidos || []).forEach((p) => {
-    const sc = scMap[p.status] || {
-      bg: "#f0f0f0",
-      color: "#333",
-      label: p.status,
-    };
+    const sc = scMap[p.status] || { bg: "#f0f0f0", color: "#333", label: p.status };
     const isPDV = p.tipo_entrega === "balcao";
 
     const itensList = (p.itens || [])
       .map((i) => {
         const qtdItem = i.qtd || i.q || 1;
-        const nome = i.nome || i.n || "?";
+        const nome    = i.nome || i.n || "?";
         const variacao = i.variacao || i.t || "";
         const montagem = i.montagem || i.m || [];
         let lbl = `<strong>${qtdItem}x</strong> ${nome}`;
-        if (variacao && variacao !== nome)
-          lbl += ` <span style="color:#e67e22">▸ ${variacao}</span>`;
+        if (variacao && variacao !== nome) lbl += ` <span style="color:#e67e22">▸ ${variacao}</span>`;
         if (montagem.length > 0) {
-          const montagemHtml = montagem
-            .map((linha) => {
+          const montagemHtml = montagem.map((linha) => {
               const idx = linha.indexOf(":");
-              if (idx > 0)
-                return `<strong>${linha.slice(0, idx)}:</strong> ${linha.slice(idx + 1).trim()}`;
+              if (idx > 0) return `<strong>${linha.slice(0, idx)}:</strong> ${linha.slice(idx + 1).trim()}`;
               return linha;
-            })
-            .join(" · ");
+            }).join(" · ");
           lbl += ` <span style="color:#555;font-size:0.78em">(${montagemHtml})</span>`;
         }
         return lbl;
-      })
-      .join("<br>");
+      }).join("<br>");
 
     let cancelInfo = "";
     if (p.status === "cancelado") {
@@ -3930,88 +3899,33 @@ async function carregarRelatorio() {
       cancelInfo = `<div style="margin-top:5px;padding:5px 7px;background:#fde;border-radius:6px;font-size:0.72rem;color:#a00">
         🚫 <strong>Por:</strong> ${quem}${p.cancelamento_motivo ? "<br><em>" + p.cancelamento_motivo + "</em>" : ""}</div>`;
     } else if (p.cancelamento_solicitado) {
-      cancelInfo = `<div style="margin-top:4px;font-size:0.7rem;color:#e74c3c">
-        🚫 Solicitado por: ${p.cancelamento_solicitado_por || "?"}</div>`;
+      cancelInfo = `<div style="margin-top:4px;font-size:0.7rem;color:#e74c3c">🚫 Solicitado por: ${p.cancelamento_solicitado_por || "?"}</div>`;
     }
 
     const tipoBadges = {
-      balcao:
-        '<span style="background:#e8f4f8;color:#1a6e8a;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🏪 PDV</span>',
-      delivery:
-        '<span style="background:#e8f7e8;color:#1a6e2e;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🛵 Delivery</span>',
-      retirada:
-        '<span style="background:#f7f0e8;color:#6e4a1a;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🚶 Retirada</span>',
+      balcao:   '<span style="background:#e8f4f8;color:#1a6e8a;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🏪 PDV</span>',
+      delivery: '<span style="background:#e8f7e8;color:#1a6e2e;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🛵 Delivery</span>',
+      retirada: '<span style="background:#f7f0e8;color:#6e4a1a;border-radius:10px;padding:2px 7px;font-size:0.68rem;font-weight:700">🚶 Retirada</span>',
     };
     const tipoBadge = tipoBadges[p.tipo_entrega] || "";
 
     const tl = isPDV
       ? [
-          {
-            icon: "🏪",
-            label: "Abertura",
-            val: fmtHora(p.tempo_recebido || p.created_at),
-            diff: null,
-          },
-          {
-            icon: "🔥",
-            label: "Cozinha",
-            val: fmtHora(p.tempo_preparo_iniciado),
-            diff: null,
-          },
-          {
-            icon: "📦",
-            label: "Pronto",
-            val: fmtHora(p.tempo_pronto),
-            diff: fmtDiff(p.tempo_preparo_iniciado, p.tempo_pronto),
-          },
-          {
-            icon: "✅",
-            label: "Fechado",
-            val: fmtHora(p.tempo_entregue),
-            diff: fmtDiff(p.tempo_recebido || p.created_at, p.tempo_entregue),
-          },
+          { icon: "🏪", label: "Abertura", val: fmtHora(p.tempo_recebido || p.created_at), diff: null },
+          { icon: "🔥", label: "Cozinha",  val: fmtHora(p.tempo_preparo_iniciado), diff: null },
+          { icon: "📦", label: "Pronto",   val: fmtHora(p.tempo_pronto), diff: fmtDiff(p.tempo_preparo_iniciado, p.tempo_pronto) },
+          { icon: "✅", label: "Fechado",  val: fmtHora(p.tempo_entregue), diff: fmtDiff(p.tempo_recebido || p.created_at, p.tempo_entregue) },
         ]
       : [
-          {
-            icon: "📥",
-            label: "Recebido",
-            val: fmtHora(p.tempo_recebido),
-            diff: null,
-          },
-          {
-            icon: "✅",
-            label: "Aceite",
-            val: fmtHora(p.tempo_confirmado),
-            diff: fmtDiff(p.tempo_recebido, p.tempo_confirmado),
-          },
-          {
-            icon: "🔥",
-            label: "Cozinha",
-            val: fmtHora(p.tempo_preparo_iniciado),
-            diff: null,
-          },
-          {
-            icon: "📦",
-            label: "Pronto",
-            val: fmtHora(p.tempo_pronto),
-            diff: fmtDiff(p.tempo_preparo_iniciado, p.tempo_pronto),
-          },
-          {
-            icon: "🛵",
-            label: "Saiu",
-            val: fmtHora(p.tempo_saiu_entrega),
-            diff: null,
-          },
-          {
-            icon: "🏠",
-            label: "Entregue",
-            val: fmtHora(p.tempo_entregue),
-            diff: fmtDiff(p.tempo_saiu_entrega, p.tempo_entregue),
-          },
+          { icon: "📥", label: "Recebido", val: fmtHora(p.tempo_recebido), diff: null },
+          { icon: "✅", label: "Aceite",   val: fmtHora(p.tempo_confirmado), diff: fmtDiff(p.tempo_recebido, p.tempo_confirmado) },
+          { icon: "🔥", label: "Cozinha",  val: fmtHora(p.tempo_preparo_iniciado), diff: null },
+          { icon: "📦", label: "Pronto",   val: fmtHora(p.tempo_pronto), diff: fmtDiff(p.tempo_preparo_iniciado, p.tempo_pronto) },
+          { icon: "🛵", label: "Saiu",     val: fmtHora(p.tempo_saiu_entrega), diff: null },
+          { icon: "🏠", label: "Entregue", val: fmtHora(p.tempo_entregue), diff: fmtDiff(p.tempo_saiu_entrega, p.tempo_entregue) },
         ];
 
-    const tlHtml = tl
-      .map((t) => {
+    const tlHtml = tl.map((t) => {
         const vazio = t.val === "-";
         return `<div style="display:flex;align-items:baseline;gap:5px;padding:2px 0;border-bottom:1px solid #f5f5f5">
         <span style="min-width:18px;font-size:0.85em">${t.icon}</span>
@@ -4019,21 +3933,38 @@ async function carregarRelatorio() {
         <span style="font-size:0.78rem;font-weight:${vazio ? "400" : "600"};color:${vazio ? "#ccc" : "#222"}">${t.val}</span>
         ${t.diff && t.diff !== "-" ? `<span style="font-size:0.68rem;color:#999">(${t.diff})</span>` : ""}
       </div>`;
-      })
-      .join("");
+      }).join("");
 
-    const totalTime = isPDV
-      ? fmtDiff(p.tempo_recebido || p.created_at, p.tempo_entregue)
-      : fmtDiff(p.tempo_recebido, p.tempo_entregue);
+    const totalTime = isPDV ? fmtDiff(p.tempo_recebido || p.created_at, p.tempo_entregue) : fmtDiff(p.tempo_recebido, p.tempo_entregue);
 
-    const podeEditar = ["gerente", "dono", "adminMaster"].includes(
-      perfilUsuario,
-    );
-    const btnEditar = podeEditar
-      ? `<button class="btn btn-sm btn-primary" onclick="abrirEdicaoPedidoRelatorio(${p.id})" title="Editar pedido">
-           <i class="fas fa-pen"></i>
-         </button>`
-      : "";
+        // --- LÓGICA DOS BOTÕES DE AÇÃO ---
+    let botoesAcao = `<div style="display:flex; gap:6px; justify-content:center; flex-wrap:wrap;">`;
+    
+    // Botão Imprimir (Disponível para todos)
+    botoesAcao += `<button class="btn btn-sm btn-info" onclick="imprimirPedido(${p.id})" title="Imprimir Comanda">
+        <i class="fas fa-print"></i>
+    </button>`;
+    
+    // Botão Editar Pagamento (Disponível para todos)
+    botoesAcao += `<button class="btn btn-sm btn-primary" onclick="abrirEdicaoPedidoRelatorio(${p.id})" title="Editar Pagamento">
+        <i class="fas fa-edit"></i>
+    </button>`;
+
+    // Botão Cancelar (Agora aparece para entregues também, exceto se já cancelado)
+    if (p.status !== 'cancelado') {
+      if (p.cancelamento_solicitado) {
+          botoesAcao += `<span style="font-size:0.7rem; background:#fff3cd; color:#856404; padding:4px 8px; border-radius:4px; font-weight:bold; display:inline-flex; align-items:center;" title="Aguardando aprovação">⏳</span>`;
+      } else if (_podeCancelarDireto()) {
+          botoesAcao += `<button class="btn btn-sm btn-danger" onclick="mudarStatus(${p.id}, 'cancelado').then(() => carregarRelatorio())" title="Cancelar Pedido (Admin)">
+              <i class="fas fa-times"></i>
+          </button>`;
+      } else {
+          botoesAcao += `<button class="btn btn-sm btn-warning" onclick="solicitarCancelamento(${p.id}).then(() => carregarRelatorio())" title="Solicitar Cancelamento (Funcionário)">
+              <i class="fas fa-ban"></i>
+          </button>`;
+      }
+    }
+    botoesAcao += `</div>`;
 
     const _tzOpts = { timeZone: "America/Asuncion" };
     tbody.innerHTML += `<tr style="border-bottom:1px solid #eee;vertical-align:top">
@@ -4061,14 +3992,13 @@ async function carregarRelatorio() {
         ${totalTime !== "-" ? `<div style="margin-top:5px;padding:3px 7px;background:#f0f4ff;border-radius:6px;font-size:0.75rem;font-weight:700;color:#3a4db7;text-align:center">⏱ ${totalTime}</div>` : ""}
       </td>
       <td style="padding:10px 8px;text-align:center;white-space:nowrap;">
-        ${btnEditar}
+        ${botoesAcao}
       </td>
     </tr>`;
   });
 
   if (!pedidos || pedidos.length === 0) {
-    tbody.innerHTML =
-      '<tr><td colspan="7" style="text-align:center;padding:40px;color:#aaa">Ningún pedido encontrado.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#aaa">Ningún pedido encontrado.</td></tr>';
   }
 
   const el = document.getElementById("rel-total-count");
@@ -17745,10 +17675,6 @@ function pdvToggleFactura() {
 //  ABRIR MODAL DE EDIÇÃO DO PEDIDO (RELATÓRIO)
 // ──────────────────────────────────────────────────────────────
 async function abrirEdicaoPedidoRelatorio(pedidoId) {
-  if (!['gerente', 'dono', 'adminMaster'].includes(perfilUsuario)) {
-    alert('Acceso denegado. Solo gerentes y dueños pueden editar.');
-    return;
-  }
 
   try {
     const { data: pedido, error } = await supa
