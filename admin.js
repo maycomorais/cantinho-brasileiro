@@ -1272,28 +1272,21 @@ let _pedidosPagTotal = 0;
 let _pedidosPagFiltroAtivo = false; // true = sem filtro de data (usuário escolheu "Todos")
 
 async function carregarPedidos(silencioso = false, pagina = null) {
-  // === TRAVA DE SEGURANÇA (Para não limpar seleção) ===
   if (silencioso) {
     const selecionados = document.querySelectorAll(".check-pedido:checked");
-    if (selecionados.length > 0) {
-      console.log("Actualización pausada: el usuario está montando ruta.");
-      return;
-    }
+    if (selecionados.length > 0) return;
   }
 
   if (pagina !== null && Number.isInteger(pagina) && pagina >= 0) {
     _pedidosPaginaAtual = pagina;
   }
 
-  // 1. Som e Notificação (count pendentes — query leve)
   const { count, error: countError } = await supa
     .from("pedidos")
     .select("id", { count: "exact", head: true })
     .eq("status", "pendente");
 
-  if (countError) {
-    console.warn("Error al contar pedidos pendientes:", countError.message);
-  }
+  if (countError) console.warn("Error al contar pedidos pendientes:", countError.message);
 
   if (count > 0) {
     if (!silencioso && typeof tocarAlarme === "function") tocarAlarme();
@@ -1301,7 +1294,6 @@ async function carregarPedidos(silencioso = false, pagina = null) {
     if (typeof pararAlarme === "function") pararAlarme();
   }
 
-  // 2. AUTO-CONFIRM: pedidos saiu_entrega há mais de 4h (query dedicada, sem paginação)
   try {
     const _corte4h = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
     const { data: _paraAuto } = await supa
@@ -1313,42 +1305,31 @@ async function carregarPedidos(silencioso = false, pagina = null) {
       const _ids = _paraAuto.map((p) => p.id);
       await supa
         .from("pedidos")
-        .update({
-          status: "entregue",
-          tempo_entregue: new Date().toISOString(),
-        })
+        .update({ status: "entregue", tempo_entregue: new Date().toISOString() })
         .in("id", _ids);
-      console.log(
-        `⏰ Auto-confirmados ${_ids.length} pedido(s) >4h em saiu_entrega`,
-      );
     }
-  } catch (e) {
-    console.warn("Auto-confirm 4h falhou:", e.message);
-  }
+  } catch (e) {}
 
-  // 3. Query paginada (colunas explícitas, filtro de data para reduzir payload)
   const from = _pedidosPaginaAtual * _PEDIDOS_PAGE_SIZE;
-  const to = from + _PEDIDOS_PAGE_SIZE - 1;
+  const to   = from + _PEDIDOS_PAGE_SIZE - 1;
 
   let query = supa
     .from("pedidos")
     .select(
       "id, uid_temporal, status, tipo_entrega, cliente_nome, cliente_telefone, " +
-        "endereco_entrega, total_geral, frete_motoboy, cancelamento_solicitado, " +
-        "cancelamento_motivo, cancelamento_solicitado_por, created_at, " +
-        "tempo_saiu_entrega, motoboy_id",
-      { count: "exact" },
+      "endereco_entrega, total_geral, frete_motoboy, cancelamento_solicitado, " +
+      "cancelamento_motivo, cancelamento_solicitado_por, created_at, " +
+      "tempo_saiu_entrega, motoboy_id, itens, forma_pagamento, obs_pagamento, geo_lat, geo_lng", // <-- COLUNAS DEVOLVIDAS AQUI
+      { count: "exact" }
     )
-    .or(
-      "status.eq.pendente,status.eq.em_preparo,status.eq.pronto_entrega,status.eq.saiu_entrega",
-    )
+    .or("status.eq.pendente,status.eq.em_preparo,status.eq.pronto_entrega,status.eq.saiu_entrega")
     .order("id", { ascending: false })
     .range(from, to);
 
   if (!_pedidosPagFiltroAtivo) {
     const _corte = new Date();
     _corte.setHours(0, 0, 0, 0);
-    _corte.setDate(_corte.getDate() - 2); // inclui o que sobrou de ontem
+    _corte.setDate(_corte.getDate() - 2);
     query = query.gte("created_at", _corte.toISOString());
   }
 
@@ -1362,13 +1343,11 @@ async function carregarPedidos(silencioso = false, pagina = null) {
   const cardsDiv = document.getElementById("lista-pedidos-cards");
   if (cardsDiv) cardsDiv.innerHTML = "";
 
-  // 4. Badge de cancelamento pendente para dono/adminMaster
   const _podeCancel = _podeCancelarDireto();
   const badgeCancelPendente = _podeCancel
     ? `<span style="background:#e74c3c;color:white;font-size:0.7rem;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">CANC. PENDENTE</span>`
     : "";
 
-  // 5. Render
   if (pedidos && pedidos.length > 0) {
     pedidos.forEach((p) => {
       let acoes = "";
@@ -1395,7 +1374,7 @@ async function carregarPedidos(silencioso = false, pagina = null) {
           ${
             _podeCancel
               ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')"><i class="fas fa-times"></i></button>`
-              : `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})"><i class="fas fa-ban"></i> Solicitar Cancelamento</button>`
+              : `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})"><i class="fas fa-ban"></i> Sol. Cancelamento</button>`
           }
         `;
       }
@@ -1410,16 +1389,30 @@ async function carregarPedidos(silencioso = false, pagina = null) {
         acoes = `${btnPrint} <button class="btn btn-sm" style="background:#e67e22;color:#fff" onclick="mudarStatus(${p.id}, 'pronto_entrega')"><i class="fas fa-check"></i> Pronto</button> ${_btnCancelPreparo}`;
       }
 
-      if (p.status === "saiu_entrega") {
+            if (p.status === "saiu_entrega") {
         linhaCor = "background-color: #ddf0ff;";
+        const jsonSeguro = encodeURIComponent(JSON.stringify(p));
+
         const _btnCancelSaiu = _podeCancel
           ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')" title="Cancelar"><i class="fas fa-times"></i></button>`
           : !temSolicitacaoCancelamento
             ? `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})" title="Solicitar cancelamento"><i class="fas fa-ban"></i> Cancelar</button>`
             : `<span style="font-size:0.72rem;color:#e67e22;font-weight:600">⏳ Cancel. Pendente</span>`;
-        acoes = `${btnPrint} <button class="btn btn-success btn-sm" onclick="confirmarEntregaFuncionario(${p.id})"><i class="fas fa-check-circle"></i> Confirmar</button> ${_btnCancelSaiu}`;
+
+        // AQUI ESTÁ A CORREÇÃO: Adiciona a caixa de seleção para permitir reenvio
+        if (p.tipo_entrega === "delivery") {
+          checkbox = `<input type="checkbox" class="check-pedido" value="${jsonSeguro}" style="width:20px; height:20px;">`;
+        }
+
+        acoes = `
+          ${btnPrint} 
+          <button class="btn btn-success btn-sm" onclick="confirmarEntregaFuncionario(${p.id})"><i class="fas fa-check-circle"></i> Confirmar</button> 
+          <button class="btn btn-sm" style="background:#25D366;color:#fff" onclick='enviarRotaZapIndividual("${jsonSeguro}")' title="Reenviar Zap para o Motoboy"><i class="fab fa-whatsapp"></i></button>
+          ${_btnCancelSaiu}
+        `;
       } else if (p.status === "pronto_entrega") {
         linhaCor = "background-color: #d4edda;";
+        const jsonSeguro = encodeURIComponent(JSON.stringify(p));
 
         const btnCancelar = _podeCancel
           ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')" title="Cancelar"><i class="fas fa-times"></i></button>`
@@ -1428,19 +1421,16 @@ async function carregarPedidos(silencioso = false, pagina = null) {
             : "";
 
         if (p.tipo_entrega === "delivery") {
-          const jsonSeguro = encodeURIComponent(JSON.stringify(p));
           checkbox = `<input type="checkbox" class="check-pedido" value="${jsonSeguro}" style="width:20px; height:20px;">`;
-          acoes = `${btnPrint} ${btnCancelar} <button class="btn btn-sm" style="background:#25D366;color:#fff" onclick="avisarClientePronto(${p.id})" title="Avisar al cliente por WhatsApp"><i class="fab fa-whatsapp"></i></button> <span style="color:#155724; font-weight:bold; font-size:0.9rem; margin-left:5px;"><i class="fas fa-motorcycle"></i> Aguardando Rota</span>`;
+          acoes = `${btnPrint} ${btnCancelar} <button class="btn btn-sm" style="background:#25D366;color:#fff" onclick="avisarClientePronto(${p.id})" title="Avisar al cliente"><i class="fab fa-whatsapp"></i></button> <span style="color:#155724; font-weight:bold; font-size:0.9rem; margin-left:5px;"><i class="fas fa-motorcycle"></i> Aguardando Rota</span>`;
         } else {
-          const icone =
-            p.tipo_entrega === "balcao" ? "fa-store" : "fa-hand-holding";
-          const tipo = p.tipo_entrega === "balcao" ? "BALCÃO" : "RETIRADA";
+          const icone = p.tipo_entrega === "balcao" ? "fa-store" : "fa-hand-holding";
+          const tipo  = p.tipo_entrega === "balcao" ? "BALCÃO" : "RETIRADA";
           checkbox = `<div style="text-align:center; color:#e67e22; font-size:1.2rem"><i class="fas ${icone}" title="${tipo}"></i></div>`;
-          acoes = `${btnPrint} ${btnCancelar} <button class="btn btn-sm" style="background:#25D366;color:#fff" onclick="avisarClientePronto(${p.id})" title="Avisar al cliente por WhatsApp"><i class="fab fa-whatsapp"></i></button> <button class="btn btn-success btn-sm" onclick="finalizarMesa(${p.id})">Baixar</button>`;
+          acoes = `${btnPrint} ${btnCancelar} <button class="btn btn-sm" style="background:#25D366;color:#fff" onclick="avisarClientePronto(${p.id})" title="Avisar"><i class="fab fa-whatsapp"></i></button> <button class="btn btn-success btn-sm" onclick="finalizarMesa(${p.id})">Baixar</button>`;
         }
       }
 
-      // Linha tabela desktop
       tbody.innerHTML += `
         <tr style="${linhaCor}">
           <td style="text-align:center; vertical-align: middle;">${checkbox}</td>
@@ -1455,122 +1445,11 @@ async function carregarPedidos(silencioso = false, pagina = null) {
           <td>Gs ${(p.total_geral || 0).toLocaleString("es-PY")}</td>
           <td class="actions-cell">${acoes}</td>
         </tr>`;
-
-      // Card mobile
-      if (cardsDiv) {
-        const statusLabel =
-          p.status === "pendente"
-            ? "🔔 Novo"
-            : p.status === "em_preparo"
-              ? "🔥 Na Cozinha"
-              : p.status === "pronto_entrega"
-                ? "✅ Pronto"
-                : p.status.replace("_", " ");
-        const cardBg =
-          p.status === "pendente"
-            ? "#fff3cd"
-            : p.status === "pronto_entrega"
-              ? "#d4edda"
-              : p.status === "saiu_entrega"
-                ? "#ddf0ff"
-                : "#fff";
-        const jsonSeguro = encodeURIComponent(JSON.stringify(p));
-        let cardAcoes = "";
-
-        if (p.status === "saiu_entrega") {
-          const _btnCancelSaiuCard = _podeCancel
-            ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')"><i class="fas fa-times"></i></button>`
-            : !temSolicitacaoCancelamento
-              ? `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})"><i class="fas fa-ban"></i> Cancelar</button>`
-              : `<span style="font-size:0.7rem;color:#e67e22;font-weight:600">⏳ Pendente</span>`;
-          cardAcoes = `
-            <button class="btn btn-success btn-sm" onclick="confirmarEntregaFuncionario(${p.id})"><i class="fas fa-check-circle"></i> Confirmar</button>
-            <button class="btn btn-info btn-sm" onclick="imprimirPedido(${p.id})"><i class="fas fa-print"></i> Imprimir</button>
-            ${_btnCancelSaiuCard}`;
-        } else if (p.status === "pendente") {
-          cardAcoes = `
-            <button class="btn btn-success btn-sm" onclick="mudarStatus(${p.id}, 'em_preparo')"><i class="fas fa-fire"></i> Cozinha</button>
-            <button class="btn btn-info btn-sm" onclick="imprimirPedido(${p.id})"><i class="fas fa-print"></i> Imprimir</button>
-            ${
-              _podeCancel
-                ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')"><i class="fas fa-times"></i></button>`
-                : `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})"><i class="fas fa-ban"></i> Cancelar</button>`
-            }`;
-        } else if (p.status === "em_preparo") {
-          const _btnCancelPreparoCard = _podeCancel
-            ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')"><i class="fas fa-times"></i></button>`
-            : !temSolicitacaoCancelamento
-              ? `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})"><i class="fas fa-ban"></i> Cancelar</button>`
-              : `<span style="font-size:0.7rem;color:#e67e22;font-weight:600">⏳ Pendente</span>`;
-          cardAcoes = `
-            <button class="btn btn-sm" style="background:#e67e22;color:#fff" onclick="mudarStatus(${p.id}, 'pronto_entrega')"><i class="fas fa-check"></i> Pronto</button>
-            <button class="btn btn-info btn-sm" onclick="imprimirPedido(${p.id})"><i class="fas fa-print"></i> Imprimir</button>
-            ${_btnCancelPreparoCard}`;
-        } else if (
-          p.status === "pronto_entrega" &&
-          p.tipo_entrega === "balcao"
-        ) {
-          const _btnCancelBalcao = _podeCancel
-            ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')"><i class="fas fa-times"></i></button>`
-            : !temSolicitacaoCancelamento
-              ? `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})"><i class="fas fa-ban"></i> Cancelar</button>`
-              : "";
-          cardAcoes = `<button class="btn btn-success btn-sm" onclick="finalizarMesa(${p.id})"><i class="fas fa-check"></i> Entregar</button>
-            <button class="btn btn-sm" style="background:#25D366;color:#fff" onclick="avisarClientePronto(${p.id})"><i class="fab fa-whatsapp"></i></button>
-            <button class="btn btn-info btn-sm" onclick="imprimirPedido(${p.id})"><i class="fas fa-print"></i></button>
-            ${_btnCancelBalcao}`;
-        } else if (p.status === "pronto_entrega") {
-          const _btnCancelPronto = _podeCancel
-            ? `<button class="btn btn-danger btn-sm" onclick="mudarStatus(${p.id}, 'cancelado')"><i class="fas fa-times"></i></button>`
-            : !temSolicitacaoCancelamento
-              ? `<button class="btn btn-warning btn-sm" onclick="solicitarCancelamento(${p.id})"><i class="fas fa-ban"></i></button>`
-              : "";
-          cardAcoes = `<label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:#155724;font-weight:600;">
-              <input type="checkbox" class="check-pedido" value="${jsonSeguro}" style="width:18px;height:18px;"> Incluir na Rota
-            </label>
-            <button class="btn btn-sm" style="background:#25D366;color:#fff" onclick="avisarClientePronto(${p.id})"><i class="fab fa-whatsapp"></i> Avisar</button>
-            <button class="btn btn-info btn-sm" onclick="imprimirPedido(${p.id})"><i class="fas fa-print"></i></button>
-            ${_btnCancelPronto}`;
-        }
-
-        const badgeCancelCard =
-          temSolicitacaoCancelamento && _podeCancel
-            ? `<div style="background:#fff0f0;border:1px solid #e74c3c;border-radius:6px;padding:6px 8px;font-size:0.75rem;color:#c0392b;margin-top:6px">
-                🚫 Cancel. solicitado: ${p.cancelamento_motivo || "-"}
-                <br><button class="btn btn-danger btn-sm" onclick="aprovarCancelamento(${p.id})" style="font-size:0.7rem;margin-top:4px">✅ Aprovar</button>
-                <button class="btn btn-secondary btn-sm" onclick="negarCancelamento(${p.id})" style="font-size:0.7rem;margin-top:4px">❌ Negar</button>
-               </div>`
-            : "";
-
-        cardsDiv.innerHTML += `
-          <div style="background:${cardBg}; border-radius:10px; padding:14px 16px; box-shadow:0 2px 8px rgba(0,0,0,0.07); border-left:4px solid ${p.status === "pendente" ? "#f59e0b" : p.status === "pronto_entrega" ? "#22c55e" : p.status === "saiu_entrega" ? "#3498db" : "#94a3b8"};">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-              <div>
-                <div style="font-weight:700;font-size:1rem">${p.uid_temporal || p.id} — ${p.cliente_nome || "Cliente"}</div>
-                <div style="font-size:0.78rem;color:#666;margin-top:2px">${p.endereco_entrega || (p.tipo_entrega === "balcao" ? "🏪 Mostrador" : "")}</div>
-              </div>
-              <span class="status-badge st-${p.status}" style="font-size:0.7rem">${statusLabel}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <strong style="font-size:1rem;color:var(--dark)">Gs ${(p.total_geral || 0).toLocaleString("es-PY")}</strong>
-                ${p.frete_motoboy ? `<div style="font-size:0.72rem;color:#27ae60;margin-top:2px">🛵 Motoboy: Gs ${p.frete_motoboy.toLocaleString("es-PY")}</div>` : ""}
-              </div>
-              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${cardAcoes}</div>
-            </div>
-            ${badgeCancelCard}
-          </div>`;
-      }
     });
   } else {
-    tbody.innerHTML =
-      '<tr><td colspan="6" style="text-align:center; padding:20px; color:#999;">Ningún pedido activo.</td></tr>';
-    if (cardsDiv)
-      cardsDiv.innerHTML =
-        '<div style="text-align:center;padding:30px;color:#aaa;font-size:0.95rem">Ningún pedido activo por el momento.</div>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#999;">Ningún pedido activo.</td></tr>';
   }
 
-  // 6. Render paginação
   _renderPaginacaoPedidos();
 }
 
@@ -2478,143 +2357,80 @@ async function calcularFinanceiro() {
   const abaFin = document.getElementById("financeiro");
   if (!abaFin || !abaFin.classList.contains("active")) return;
 
-  const elTipo = document.getElementById("fin-tipo");
-  const elFactura = document.getElementById("fin-factura");
+  const elTipo        = document.getElementById("fin-tipo");
+  const elFactura     = document.getElementById("fin-factura");
   const elClienteTipo = document.getElementById("fin-cliente-tipo");
   if (!elTipo) return;
 
-  const ehGestor = ["dono", "gerente", "adminMaster"].includes(perfilUsuario);
+  const ehGestor   = ["dono", "gerente", "adminMaster"].includes(perfilUsuario);
   const emailAtual = document.getElementById("user-email")?.innerText || "";
 
-  // Carrega sessões — consolidadas para gestor, própria para funcionário
   await _carregarSessaoCaixa({ propria: !ehGestor });
+  if (typeof _carregarCaixasConsolidados === "function") await _carregarCaixasConsolidados();
 
-  if (typeof _carregarCaixasConsolidados === "function") {
-    await _carregarCaixasConsolidados();
-  }
-
-  if (
-    typeof TAXA_MOTOBOY !== "number" ||
-    TAXA_MOTOBOY === 0 ||
-    AJUDA_COMBUSTIVEL === 0
-  ) {
-    const { data: _cfgMot } = await supa
-      .from("configuracoes")
-      .select("taxa_motoboy_base, ajuda_combustivel")
-      .maybeSingle();
+  if (typeof TAXA_MOTOBOY !== "number" || TAXA_MOTOBOY === 0 || AJUDA_COMBUSTIVEL === 0) {
+    const { data: _cfgMot } = await supa.from("configuracoes").select("taxa_motoboy_base, ajuda_combustivel").maybeSingle();
     if (_cfgMot) {
-      if (_cfgMot.taxa_motoboy_base != null)
-        TAXA_MOTOBOY = _cfgMot.taxa_motoboy_base;
-      if (_cfgMot.ajuda_combustivel != null)
-        AJUDA_COMBUSTIVEL = _cfgMot.ajuda_combustivel;
+      if (_cfgMot.taxa_motoboy_base != null) TAXA_MOTOBOY = _cfgMot.taxa_motoboy_base;
+      if (_cfgMot.ajuda_combustivel != null) AJUDA_COMBUSTIVEL = _cfgMot.ajuda_combustivel;
     }
   }
 
   const { utcInicio, utcFim } = await _obterPeriodoFinanceiro();
 
   const elInicio = document.getElementById("fin-inicio");
-  const elFim = document.getElementById("fin-fim");
+  const elFim    = document.getElementById("fin-fim");
   if (elInicio && !elInicio.value) {
     const _tz = 3 * 60 * 60 * 1000;
-    elInicio.value = new Date(new Date(utcInicio).getTime() - _tz)
-      .toISOString()
-      .split("T")[0];
+    elInicio.value = new Date(new Date(utcInicio).getTime() - _tz).toISOString().split("T")[0];
   }
   if (elFim && !elFim.value) {
     const _tz = 3 * 60 * 60 * 1000;
-    elFim.value = new Date(new Date(utcFim).getTime() - _tz)
-      .toISOString()
-      .split("T")[0];
+    elFim.value = new Date(new Date(utcFim).getTime() - _tz).toISOString().split("T")[0];
   }
 
-  const tipoFiltro = elTipo.value;
-  const facturaFiltro = elFactura ? elFactura.value : "todos";
+  const tipoFiltro        = elTipo.value;
+  const facturaFiltro     = elFactura ? elFactura.value : "todos";
   const clienteTipoFiltro = elClienteTipo ? elClienteTipo.value : "todos";
 
-  // ── Busca TODOS os pedidos do período (paginado — sem limite de 1000) ──
+  // 1. Buscar todos os pedidos no período
   let peds = [];
   try {
     peds = await _buscarTodosPedidos(() => {
       let q = supa
         .from("pedidos")
         .select("*")
-        .in("status", [
-          "entregue",
-          "em_preparo",
-          "pronto_entrega",
-          "saiu_entrega",
-        ])
+        .in("status", ["entregue", "em_preparo", "pronto_entrega", "saiu_entrega"])
         .gte("created_at", utcInicio)
         .lte("created_at", utcFim);
 
       if (tipoFiltro !== "todos") {
         if (tipoFiltro === "TarjetaALL") {
-          q = q.in("forma_pagamento", [
-            "TarjetaDebito",
-            "TarjetaCredito",
-            "Cartao",
-            "Cartão - Débito",
-            "Cartão - Crédito",
-            "Tarjeta - Débito",
-            "Tarjeta - Crédito",
-          ]);
+          q = q.in("forma_pagamento", ["TarjetaDebito", "TarjetaCredito", "Cartao", "Cartão - Débito", "Cartão - Crédito", "Tarjeta - Débito", "Tarjeta - Crédito"]);
         } else if (tipoFiltro === "TarjetaBRALL") {
-          q = q.in("forma_pagamento", [
-            "TarjetaBRDebito",
-            "TarjetaBRCredito",
-            "CartaoBR",
-            "Cartão BR - Débito",
-            "Cartão BR - Crédito",
-            "Tarjeta BR - Débito",
-            "Tarjeta BR - Crédito",
-          ]);
+          q = q.in("forma_pagamento", ["TarjetaBRDebito", "TarjetaBRCredito", "CartaoBR", "Cartão BR - Débito", "Cartão BR - Crédito", "Tarjeta BR - Débito", "Tarjeta BR - Crédito"]);
         } else if (tipoFiltro === "Qr") {
-          q = q.in("forma_pagamento", [
-            "Qr",
-            "QrMaquina",
-            "QrMarina",
-            "QrCelular",
-            "QrPy",
-          ]);
+          q = q.in("forma_pagamento", ["Qr", "QrMaquina", "QrMarina", "QrCelular", "QrPy"]);
         } else if (tipoFiltro === "TarjetaDebito") {
-          q = q.in("forma_pagamento", [
-            "TarjetaDebito",
-            "Cartão - Débito",
-            "Tarjeta - Débito",
-          ]);
+          q = q.in("forma_pagamento", ["TarjetaDebito", "Cartão - Débito", "Tarjeta - Débito"]);
         } else if (tipoFiltro === "TarjetaCredito") {
-          q = q.in("forma_pagamento", [
-            "TarjetaCredito",
-            "Cartão - Crédito",
-            "Tarjeta - Crédito",
-          ]);
+          q = q.in("forma_pagamento", ["TarjetaCredito", "Cartão - Crédito", "Tarjeta - Crédito"]);
         } else if (tipoFiltro === "TarjetaBRDebito") {
-          q = q.in("forma_pagamento", [
-            "TarjetaBRDebito",
-            "Cartão BR - Débito",
-            "Tarjeta BR - Débito",
-          ]);
+          q = q.in("forma_pagamento", ["TarjetaBRDebito", "Cartão BR - Débito", "Tarjeta BR - Débito"]);
         } else if (tipoFiltro === "TarjetaBRCredito") {
-          q = q.in("forma_pagamento", [
-            "TarjetaBRCredito",
-            "Cartão BR - Crédito",
-            "Tarjeta BR - Crédito",
-          ]);
+          q = q.in("forma_pagamento", ["TarjetaBRCredito", "Cartão BR - Crédito", "Tarjeta BR - Crédito"]);
         } else {
           q = q.eq("forma_pagamento", tipoFiltro);
         }
       }
 
       if (clienteTipoFiltro === "mensalista") {
-        q = q.or(
-          "forma_pagamento.eq.Mensalista,obs_pagamento.ilike.%Mensalista%",
-        );
+        q = q.or("forma_pagamento.eq.Mensalista,obs_pagamento.ilike.%Mensalista%");
       } else if (clienteTipoFiltro === "nao_mensalista") {
         q = q.not("forma_pagamento", "eq", "Mensalista");
       }
 
       if (!ehGestor && _perfilId) q = q.eq("garcom_id", _perfilId);
-
       return q;
     });
   } catch (e) {
@@ -2624,49 +2440,31 @@ async function calcularFinanceiro() {
 
   if (clienteTipoFiltro === "nao_mensalista") {
     peds = peds.filter((p) => {
-      const fp = (p.forma_pagamento || "").toLowerCase();
+      const fp  = (p.forma_pagamento || "").toLowerCase();
       const obs = (p.obs_pagamento || "").toLowerCase();
       return fp !== "mensalista" && !obs.includes("mensalista");
     });
   }
 
-  const _mbIds = [
-    ...new Set(peds.filter((p) => p.motoboy_id).map((p) => p.motoboy_id)),
-  ];
+  const _mbIds = [...new Set(peds.filter((p) => p.motoboy_id).map((p) => p.motoboy_id))];
   const _motoboyNomeMap = {};
   if (_mbIds.length) {
-    const { data: _mbs } = await supa
-      .from("motoboys")
-      .select("id, nome")
-      .in("id", _mbIds);
-    (_mbs || []).forEach((m) => {
-      _motoboyNomeMap[m.id] = m.nome;
-    });
+    const { data: _mbs } = await supa.from("motoboys").select("id, nome").in("id", _mbIds);
+    (_mbs || []).forEach((m) => { _motoboyNomeMap[m.id] = m.nome; });
   }
 
-  if (facturaFiltro === "com_factura") {
-    peds = peds.filter((p) => p.dados_factura?.ruc || p.dados_factura?.ci);
-  } else if (facturaFiltro === "sem_factura") {
-    peds = peds.filter((p) => !p.dados_factura?.ruc && !p.dados_factura?.ci);
-  }
+  if (facturaFiltro === "com_factura") peds = peds.filter((p) => p.dados_factura?.ruc || p.dados_factura?.ci);
+  else if (facturaFiltro === "sem_factura") peds = peds.filter((p) => !p.dados_factura?.ruc && !p.dados_factura?.ci);
 
-  // ── Movimentações de caixa ─────────────────────────────────
   let caixa = [];
   if (_sessoesCaixaAtivas.length > 0) {
     const idsSessoes = _sessoesCaixaAtivas.map((s) => s.id);
-    let caixaQuery = supa
-      .from("movimentacoes_caixa")
-      .select("*")
-      .in("sessao_id", idsSessoes);
+    let caixaQuery = supa.from("movimentacoes_caixa").select("*").in("sessao_id", idsSessoes);
     if (!ehGestor) caixaQuery = caixaQuery.eq("usuario_email", emailAtual);
     const { data: caixaData } = await caixaQuery;
     caixa = caixaData || [];
   } else if (ehGestor) {
-    const { data: caixaData } = await supa
-      .from("movimentacoes_caixa")
-      .select("*")
-      .gte("created_at", utcInicio)
-      .lte("created_at", utcFim);
+    const { data: caixaData } = await supa.from("movimentacoes_caixa").select("*").gte("created_at", utcInicio).lte("created_at", utcFim);
     caixa = caixaData || [];
   }
 
@@ -2675,139 +2473,78 @@ async function calcularFinanceiro() {
   const safeNum = (v) => {
     if (!v) return 0;
     if (typeof v === "number") return v;
-    return (
-      parseFloat(
-        v
-          .toString()
-          .replace(/[^\d.,-]/g, "")
-          .replace(",", "."),
-      ) || 0
-    );
+    return parseFloat(v.toString().replace(/[^\d.,-]/g, "").replace(",", ".")) || 0;
   };
   const fmt = (n) => "Gs " + n.toLocaleString("es-PY");
   const fmtBRL = (n) => "R$ " + n.toFixed(2).replace(".", ",");
 
-  let faturamento = 0,
-    totalPix = 0,
-    totalTransf = 0,
-    totalCartao = 0,
-    totalEfetivo = 0,
-    totalNaNota = 0,
-    totalQrCelular = 0,
-    totalQrMaquina = 0;
-  let custoEntregas = 0,
-    qtdPedidos = 0;
-  let totalTaxaServico = 0,
-    qtdPedidosComTaxaServico = 0;
-  let faturamentoMensalista = 0,
-    qtdPedidosMensalista = 0;
+  let faturamento = 0, totalPix = 0, totalTransf = 0, totalCartao = 0, totalEfetivo = 0, totalNaNota = 0, totalQrCelular = 0, totalQrMaquina = 0;
+  let custoEntregas = 0, qtdPedidos = 0;
+  let faturamentoMensalista = 0, qtdPedidosMensalista = 0;
   const motoMap = {};
 
   function _acumularMetodo(metodoRaw, valor) {
     const m = (metodoRaw || "").toLowerCase().trim();
-    if (
-      m === "tarjetabrdebito" ||
-      m === "tarjetabrcredito" ||
-      m === "cartãobr - débito" ||
-      m === "cartãobr - crédito" ||
-      m === "cartao br - debito" ||
-      m === "cartao br - credito" ||
-      m === "tarjeta br - débito" ||
-      m === "tarjeta br - crédito" ||
-      m === "cartãobr" ||
-      m === "cartaobr" ||
-      m === "cartao br"
-    ) {
-      totalCartao += valor;
-      return;
-    }
-    if (
-      m === "tarjetadebito" ||
-      m === "tarjetacredito" ||
-      m === "cartão - débito" ||
-      m === "cartão - crédito" ||
-      m === "cartao - debito" ||
-      m === "cartao - credito" ||
-      m === "tarjeta - débito" ||
-      m === "tarjeta - crédito" ||
-      m === "cartao" ||
-      m === "cartão" ||
-      m === "tarjeta"
-    ) {
-      totalCartao += valor;
-      return;
-    }
-    if (m.includes("pix")) {
-      totalPix += valor;
-      return;
-    }
-    if (m.includes("transfer") || m.includes("alias")) {
-      totalTransf += valor;
-      return;
-    }
-    if (m.includes("efetivo") || m.includes("dinheiro") || m === "efectivo") {
-      totalEfetivo += valor;
-      return;
-    }
-    if (
-      m === "qr" ||
-      m === "qrmaquina" ||
-      m === "qrmarina" ||
-      m === "qrcelular" ||
-      m === "qrpy" ||
-      m.includes("qr")
-    ) {
-      totalQrCelular += valor;
-      return;
-    }
+    if (m.includes("tarjetabr") || m.includes("cartãobr") || m.includes("cartao br") || m.includes("cartaobr")) { totalCartao += valor; return; }
+    if (m.includes("tarjeta") || m.includes("cartao") || m.includes("cartão")) { totalCartao += valor; return; }
+    if (m.includes("pix")) { totalPix += valor; return; }
+    if (m.includes("transfer") || m.includes("alias")) { totalTransf += valor; return; }
+    if (m.includes("efetivo") || m.includes("dinheiro") || m.includes("efectivo")) { totalEfetivo += valor; return; }
+    if (m.includes("qrmaquina") || m.includes("qrmarina")) { totalQrMaquina += valor; return; }
+    if (m.includes("qr")) { totalQrCelular += valor; return; }
+    
+    // Se cair aqui, é um método não mapeado (ex: erro de digitação)
+    console.warn("Método de pagamento não reconhecido:", m);
   }
 
   peds.forEach((p) => {
-    const pag = (p.forma_pagamento || "").toLowerCase();
+    const pag    = (p.forma_pagamento || "").toLowerCase().trim();
     const obsPag = (p.obs_pagamento || "").toLowerCase();
     const isMensalista = pag === "mensalista" || obsPag.includes("mensalista");
-    const isNaNota = pag === "nanota";
-    const isQuitado =
-      !!p.quitado_em ||
-      (p.obs_pagamento || "").toLowerCase().includes("[quitado");
+    const isNaNota     = pag === "nanota";
+    const isQuitado    = !!p.quitado_em || (p.obs_pagamento || "").toLowerCase().includes("[quitado");
 
     if (isMensalista) {
       faturamentoMensalista += safeNum(p.total_geral);
       qtdPedidosMensalista++;
+      return; // Mensalista não entra no caixa geral
     }
 
     if (isNaNota && !isQuitado) {
       totalNaNota += safeNum(p.total_geral);
-      return;
+      return; // Fiado em aberto não entra no faturamento
     }
-    if (isMensalista) return;
 
     const val = safeNum(p.total_geral);
     faturamento += val;
     qtdPedidos++;
 
-    const taxaServ = safeNum(p.taxa_servico_valor);
-    if (taxaServ > 0) {
-      totalTaxaServico += taxaServ;
-      qtdPedidosComTaxaServico++;
-    }
-
+    // DISTRIBUIÇÃO POR FORMA DE PAGAMENTO
     if (isNaNota && isQuitado) {
       let formaQuitacao = p.forma_pagamento_quitacao || null;
       if (!formaQuitacao) {
         const match = (p.obs_pagamento || "").match(/Forma:\s*([A-Za-zÀ-ú]+)/i);
         if (match) formaQuitacao = match[1];
       }
-      if (formaQuitacao) _acumularMetodo(formaQuitacao, val);
+      _acumularMetodo(formaQuitacao || "efetivo", val);
     } else if (pag === "multipagamento") {
       let partes = [];
-      try {
-        partes = JSON.parse(p.obs_pagamento || "[]");
-      } catch (_) {}
-      if (Array.isArray(partes) && partes.length) {
-        partes.forEach((parte) =>
-          _acumularMetodo(parte.metodo, safeNum(parte.valor)),
-        );
+      try { partes = JSON.parse(p.obs_pagamento || "[]"); } catch (_) {}
+      
+      if (Array.isArray(partes) && partes.length > 0) {
+        let somaPartes = 0;
+        partes.forEach((parte) => {
+          const vParte = safeNum(parte.valor);
+          somaPartes += vParte;
+          _acumularMetodo(parte.metodo, vParte);
+        });
+        // Se a soma das partes for menor que o total (ex: erro no JSON), joga a diferença no cartão para não sumir
+        if (somaPartes < val) {
+          totalCartao += (val - somaPartes); 
+        }
+      } else {
+        // Se o JSON do multipagamento estiver vazio/corrompido, joga o valor todo no cartão
+        totalCartao += val;
       }
     } else {
       _acumularMetodo(pag, val);
@@ -2816,18 +2553,14 @@ async function calcularFinanceiro() {
     if (p.tipo_entrega === "delivery") {
       const taxa = safeNum(p.frete_motoboy) || TAXA_MOTOBOY || 0;
       custoEntregas += taxa;
-      const nm = p.motoboy_id
-        ? _motoboyNomeMap[p.motoboy_id] || `Motoboy #${p.motoboy_id}`
-        : "Sem Motoboy";
+      const nm = p.motoboy_id ? (_motoboyNomeMap[p.motoboy_id] || `Motoboy #${p.motoboy_id}`) : "Sem Motoboy";
       if (!motoMap[nm]) motoMap[nm] = { entregas: 0, frete_total: 0 };
       motoMap[nm].entregas++;
       motoMap[nm].frete_total += taxa;
     }
   });
 
-  const qtdMotoboyUnicos = Object.keys(motoMap).filter(
-    (n) => n !== "Sem Motoboy",
-  ).length;
+  const qtdMotoboyUnicos = Object.keys(motoMap).filter((n) => n !== "Sem Motoboy").length;
   custoEntregas += (AJUDA_COMBUSTIVEL || 0) * qtdMotoboyUnicos;
 
   let totalSaidas = 0;
@@ -2836,36 +2569,20 @@ async function calcularFinanceiro() {
     if (c.tipo === "despesa" || c.tipo === "sangria") totalSaidas += v;
   });
 
-  const fundoAbertura =
-    _sessoesCaixaAtivas.length > 0
-      ? _sessoesCaixaAtivas.reduce(
-          (acc, s) => acc + safeNum(s.valor_abertura),
-          0,
-        )
-      : 0;
-
+  const fundoAbertura = _sessoesCaixaAtivas.length > 0 ? _sessoesCaixaAtivas.reduce((acc, s) => acc + safeNum(s.valor_abertura), 0) : 0;
   const lucro = faturamento - custoEntregas - totalSaidas;
 
-  const setV = (id, v) => {
-    const el = document.getElementById(id);
-    if (el) el.innerText = v;
-  };
+  const setV = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
 
   setV("card-faturamento", fmt(faturamento));
   setV("card-custo-moto", fmt(custoEntregas));
   setV("card-lucro", fmt(lucro));
-  setV("card-taxa-servico", fmt(totalTaxaServico));
-  setV(
-    "card-taxa-servico-qtd",
-    qtdPedidosComTaxaServico +
-      (qtdPedidosComTaxaServico === 1 ? " pedido" : " pedidos"),
-  );
+  setV("card-taxa-servico", fmt(0)); // Ocultando taxa de serviço se não usar
+  setV("card-taxa-servico-qtd", "0 pedidos");
 
   const totalPixBRL = COTACAO_REAL > 0 ? totalPix / COTACAO_REAL : 0;
-  const pixDisplay =
-    totalPix > 0
-      ? `${fmt(totalPix)} (≈ ${fmtBRL(totalPixBRL)})`
-      : fmt(totalPix);
+  const pixDisplay  = totalPix > 0 ? `${fmt(totalPix)} (≈ ${fmtBRL(totalPixBRL)})` : fmt(totalPix);
+  
   setV("total-pix", pixDisplay);
   setV("total-transf", fmt(totalTransf));
   setV("total-cartao", fmt(totalCartao));
@@ -2877,7 +2594,6 @@ async function calcularFinanceiro() {
   setV("card-qtd-pedidos", qtdPedidos);
   setV("card-ticket-medio", fmt(qtdPedidos > 0 ? faturamento / qtdPedidos : 0));
 
-  // KPI mensalista (card dinâmico)
   let _elMsgMens = document.getElementById("fin-kpi-mensalista");
   if (!_elMsgMens) {
     const _anchor = document.querySelector(".kpi-grid");
@@ -2885,8 +2601,7 @@ async function calcularFinanceiro() {
       const div = document.createElement("div");
       div.id = "fin-kpi-mensalista";
       div.className = "kpi-card";
-      div.style.cssText =
-        "background:linear-gradient(135deg,#fef3c7,#fde68a);color:#7c2d12";
+      div.style.cssText = "background:linear-gradient(135deg,#fef3c7,#fde68a);color:#7c2d12";
       div.innerHTML = `
         <h3 style="color:#7c2d12">🎫 Ventas Mensualista</h3>
         <div class="value" id="fin-kpi-mensalista-valor" style="color:#7c2d12">Gs 0</div>
@@ -2895,112 +2610,37 @@ async function calcularFinanceiro() {
     }
   }
   setV("fin-kpi-mensalista-valor", fmt(faturamentoMensalista));
-  setV(
-    "fin-kpi-mensalista-qtd",
-    qtdPedidosMensalista +
-      (qtdPedidosMensalista === 1 ? " pedido" : " pedidos"),
-  );
+  setV("fin-kpi-mensalista-qtd", qtdPedidosMensalista + (qtdPedidosMensalista === 1 ? " pedido" : " pedidos"));
 
-  if (typeof renderizarHistoricoCaixa === "function")
-    renderizarHistoricoCaixa(caixa, _sessaoCaixaAtiva);
-  if (typeof carregarHistoricoFechamentos === "function")
-    carregarHistoricoFechamentos();
+  if (typeof renderizarHistoricoCaixa === "function") renderizarHistoricoCaixa(caixa, _sessaoCaixaAtiva);
+  if (typeof carregarHistoricoFechamentos === "function") carregarHistoricoFechamentos();
 
-  // Badge superior — visão consolidada para gestor, individual para funcionário
   const badgeCaixa = document.getElementById("badge-caixa-operador");
   if (badgeCaixa) {
     const n = _sessoesCaixaAtivas.length;
     if (ehGestor) {
-      if (n === 0) {
-        badgeCaixa.textContent = `📊 Visión consolidada — ${elInicio?.value || ""} até ${elFim?.value || ""} (sin sesión abierta)`;
-      } else if (n === 1) {
-        const s = _sessoesCaixaAtivas[0];
-        const dAbr = new Date(s.aberto_em).toLocaleString("pt-BR", {
-          day: "2-digit",
-          month: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-        const dFch = s.fechado_em
-          ? new Date(s.fechado_em).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "em aberto";
-        badgeCaixa.textContent = `📊 Visión consolidada — 1 caja abierta (${s.usuario_nome || s.usuario_email}) · ${dAbr} → ${dFch}`;
-      } else {
-        badgeCaixa.textContent = `📊 Visión consolidada — ${n} cajas abiertas · total sumado`;
-      }
+      if (n === 0) badgeCaixa.textContent = `📊 Visión consolidada — ${elInicio?.value || ""} até ${elFim?.value || ""}`;
+      else if (n === 1) badgeCaixa.textContent = `📊 Visión consolidada — 1 caja abierta (${_sessoesCaixaAtivas[0].usuario_nome})`;
+      else badgeCaixa.textContent = `📊 Visión consolidada — ${n} cajas abiertas`;
     } else {
-      if (_sessaoCaixaAtiva) {
-        const dAbr = new Date(_sessaoCaixaAtiva.aberto_em).toLocaleString(
-          "pt-BR",
-          {
-            day: "2-digit",
-            month: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-          },
-        );
-        const dFch = _sessaoCaixaAtiva.fechado_em
-          ? new Date(_sessaoCaixaAtiva.fechado_em).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "em aberto";
-        badgeCaixa.textContent = `💼 Tu caja — aberta ${dAbr} → ${dFch}`;
-      } else {
-        badgeCaixa.textContent = `💼 Sin caja abierta`;
-      }
+      if (_sessaoCaixaAtiva) badgeCaixa.textContent = `💼 Tu caja — aberta ${new Date(_sessaoCaixaAtiva.aberto_em).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+      else badgeCaixa.textContent = `💼 Sin caja abierta`;
     }
   }
 
   const tbD = document.getElementById("lista-despesas-caixa");
   if (tbD) {
     const despesas = (caixa || []).filter((c) => c.tipo === "despesa");
-    const _DLABELS = {
-      despesas_gerais: "📦 Despesas Gerais",
-      contas_fixas: "🏠 Contas Fixas",
-      pagamento_fornecedor: "🤝 Fornecedor",
-      pagamento_funcionario: "👷 Empleado",
-      pagamento_terceiros: "👥 Terceiros",
-      manutencao: "🔧 Manutenção",
-      retirada: "💵 Retirada",
-      motoboy: "🛵 Motoboy",
-      outro: "✏️ Outro",
-    };
-    if (!despesas.length) {
-      tbD.innerHTML =
-        '<tr><td colspan="5" style="text-align:center;color:#999;padding:16px">Ningún gasto en esta sesión</td></tr>';
-    } else {
-      tbD.innerHTML = despesas
-        .map((d) => {
-          const dt = new Date(d.created_at).toLocaleString("pt-BR", {
-            day: "2-digit",
-            month: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-          const tipoLabel = _DLABELS[d.tipo_despesa] || d.tipo_despesa || "—";
-          const descExtra =
-            d.tipo_despesa === "outro" && d.descricao_outro
-              ? ` (${d.descricao_outro})`
-              : "";
-          const obs = d.descricao || "";
-          const enc = encodeURIComponent(
-            JSON.stringify({
-              id: d.id,
-              valor: d.valor,
-              tipo_despesa: d.tipo_despesa || "despesas_gerais",
-              descricao: d.descricao || "",
-              descricao_outro: d.descricao_outro || "",
-            }),
-          );
-          return `<tr>
+    const _DLABELS = { despesas_gerais: "📦 Despesas Gerais", contas_fixas: "🏠 Contas Fixas", pagamento_fornecedor: "🤝 Fornecedor", pagamento_funcionario: "👷 Empleado", pagamento_terceiros: "👥 Terceiros", manutencao: "🔧 Manutenção", retirada: "💵 Retirada", motoboy: "🛵 Motoboy", outro: "✏️ Outro" };
+    if (!despesas.length) tbD.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:16px">Ningún gasto en esta sesión</td></tr>';
+    else {
+      tbD.innerHTML = despesas.map((d) => {
+        const dt = new Date(d.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+        const tipoLabel = _DLABELS[d.tipo_despesa] || d.tipo_despesa || "—";
+        const descExtra = d.tipo_despesa === "outro" && d.descricao_outro ? ` (${d.descricao_outro})` : "";
+        const obs = d.descricao || "";
+        const enc = encodeURIComponent(JSON.stringify({ id: d.id, valor: d.valor, tipo_despesa: d.tipo_despesa || "despesas_gerais", descricao: d.descricao || "", descricao_outro: d.descricao_outro || "" }));
+        return `<tr>
           <td style="white-space:nowrap;color:#666;font-size:0.82rem">${dt}</td>
           <td><span style="background:#fdecea;color:#a93226;padding:2px 7px;border-radius:10px;font-size:0.78rem">${tipoLabel}${descExtra}</span></td>
           <td style="color:#555;font-size:0.85rem">${obs}</td>
@@ -3009,25 +2649,20 @@ async function calcularFinanceiro() {
             <button onclick="abrirEditarDespesa('${enc}')" style="background:#3498db;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.8rem;margin-right:4px">✏️</button>
             <button onclick="excluirDespesa(${d.id})" style="background:#e74c3c;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.8rem">🗑️</button>
           </td></tr>`;
-        })
-        .join("");
+      }).join("");
     }
   }
 
   const tbM = document.getElementById("lista-financeiro-motoboys");
   if (tbM) {
     tbM.innerHTML = "";
-    if (!Object.keys(motoMap).length) {
-      tbM.innerHTML =
-        '<tr><td colspan="4" style="text-align:center;color:#999">Ninguna entrega en esta sesión</td></tr>';
-    } else {
+    if (!Object.keys(motoMap).length) tbM.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999">Ninguna entrega en esta sesión</td></tr>';
+    else {
       for (const [nome, d] of Object.entries(motoMap)) {
         const semNome = nome === "Sem Motoboy";
-        const comb = semNome ? 0 : AJUDA_COMBUSTIVEL || 0;
-        const tot = d.frete_total + comb;
-        const combLabel = semNome
-          ? '<span style="color:#aaa;font-size:0.78rem">sem combustível</span>'
-          : `+ comb. ${fmt(comb)}`;
+        const comb    = semNome ? 0 : AJUDA_COMBUSTIVEL || 0;
+        const tot     = d.frete_total + comb;
+        const combLabel = semNome ? '<span style="color:#aaa;font-size:0.78rem">sem combustível</span>' : `+ comb. ${fmt(comb)}`;
         tbM.innerHTML += `<tr><td>${nome}</td><td>${d.entregas}</td>
           <td style="font-size:0.82rem">Frete: ${fmt(d.frete_total)} ${combLabel}</td>
           <td><strong>${fmt(tot)}</strong></td></tr>`;
@@ -3271,24 +2906,18 @@ async function carregarHistoricoFechamentos() {
   let section = document.getElementById("historico-fechamentos-section");
   if (!section) {
     const placeholder = document.getElementById("historico-caixa-placeholder");
-    if (!placeholder) {
-      console.warn("Elemento #historico-caixa-placeholder no encontrado.");
-      return;
-    }
+    if (!placeholder) return;
     section = document.createElement("details");
     section.id = "historico-fechamentos-section";
-    section.style.cssText =
-      "margin-top:12px; border:1px solid #e0e0e0; border-radius:8px; padding:12px; background:#fafafa;";
+    section.style.cssText = "margin-top:12px; border:1px solid #e0e0e0; border-radius:8px; padding:12px; background:#fafafa;";
 
     const summary = document.createElement("summary");
-    summary.style.cssText =
-      "font-weight:700; font-size:1rem; cursor:pointer; color:var(--primary);";
+    summary.style.cssText = "font-weight:700; font-size:1rem; cursor:pointer; color:var(--primary);";
     summary.textContent = "🗓️ Histórico de Fechamentos";
     section.appendChild(summary);
 
     const container = document.createElement("div");
-    container.style.cssText =
-      "margin-top:12px; max-height:400px; overflow-y:auto;";
+    container.style.cssText = "margin-top:12px; max-height:400px; overflow-y:auto;";
     container.id = "historico-fechamentos-container";
     section.appendChild(container);
 
@@ -3297,65 +2926,42 @@ async function carregarHistoricoFechamentos() {
 
   const container = document.getElementById("historico-fechamentos-container");
   if (!container) return;
-  container.innerHTML =
-    '<div style="text-align:center;padding:16px;color:#aaa;">Cargando...</div>';
+  container.innerHTML = '<div style="text-align:center;padding:16px;color:#aaa;">Cargando...</div>';
 
-  // ── Escopo de visibilidade ─────────────────────────────────
-  // Funcionário / garçom vê só o histórico dele.
-  // Gestores veem histórico de todos.
-  const ehGestor = ["dono", "gerente", "adminMaster"].includes(perfilUsuario);
+  const ehGestor   = ["dono", "gerente", "adminMaster"].includes(perfilUsuario);
   const emailAtual = document.getElementById("user-email")?.innerText || "";
 
   let query = supa
     .from("sessoes_caixa")
-    .select(
-      "id, usuario_nome, usuario_email, aberto_em, fechado_em, valor_fechamento, resumo_fechamento",
-    )
+    .select("id, usuario_nome, usuario_email, aberto_em, fechado_em, valor_fechamento, resumo_fechamento")
     .not("fechado_em", "is", null)
     .order("fechado_em", { ascending: false })
     .limit(30);
 
-  if (!ehGestor) {
-    query = query.eq("usuario_email", emailAtual);
-  }
+  if (!ehGestor) query = query.eq("usuario_email", emailAtual);
 
   const { data: sessoes, error } = await query;
 
-  if (error || !sessoes?.length) {
-    container.innerHTML =
-      '<div style="text-align:center;padding:16px;color:#aaa;">' +
-      (ehGestor
-        ? "Ningún cierre registrado todavía."
-        : "Todavía no has cerrado ninguna caja.") +
-      "</div>";
+  if (error) {
+    console.error("Erro ao carregar histórico:", error);
+    container.innerHTML = `<div style="text-align:center;padding:16px;color:#e74c3c;font-size:0.85rem;">Erro ao carregar histórico: ${error.message}</div>`;
+    return;
+  }
+
+  if (!sessoes || sessoes.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:16px;color:#aaa;">' + (ehGestor ? "Ningún cierre registrado todavía." : "Todavía no has cerrado ninguna caja.") + '</div>';
     return;
   }
 
   const fmt = (n) => "Gs " + Math.round(n || 0).toLocaleString("es-PY");
 
-  container.innerHTML = sessoes
-    .map((s) => {
-      const abertoFmt = new Date(s.aberto_em).toLocaleString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const fechadoFmt = new Date(s.fechado_em).toLocaleString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const temResumo = !!s.resumo_fechamento;
+  container.innerHTML = sessoes.map((s) => {
+    const abertoFmt = new Date(s.aberto_em).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const fechadoFmt = new Date(s.fechado_em).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const temResumo = !!s.resumo_fechamento;
+    const operadorHtml = ehGestor ? `<div style="color:#888;font-size:0.76rem;">${s.usuario_nome || s.usuario_email || "—"} · Sesión #${s.id}</div>` : `<div style="color:#888;font-size:0.76rem;">Sesión #${s.id}</div>`;
 
-      // Para gestores, mostra o nome/e-mail do operador na linha.
-      // Para o próprio funcionário, é redundante (é ele mesmo) — omite.
-      const operadorHtml = ehGestor
-        ? `<div style="color:#888;font-size:0.76rem;">${s.usuario_nome || s.usuario_email || "—"} · Sesión #${s.id}</div>`
-        : `<div style="color:#888;font-size:0.76rem;">Sesión #${s.id}</div>`;
-
-      return `
+    return `
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:10px;border-bottom:1px solid #eee;">
         <div>
           <div style="font-weight:700;font-size:0.88rem;">${abertoFmt} → ${fechadoFmt}</div>
@@ -3373,8 +2979,7 @@ async function carregarHistoricoFechamentos() {
           </button>
         </div>
       </div>`;
-    })
-    .join("");
+  }).join("");
 }
 
 /**
@@ -3394,49 +2999,29 @@ async function carregarHistoricoFechamentos() {
 async function _calcularResumoSessaoLegado(sessao, fechadoEmOverride) {
   const fimJanela = fechadoEmOverride || sessao.fechado_em;
 
-  // 1. Descobrir o ID do usuário (garcom_id) baseado no e-mail da sessão.
-  // Isso garante que o boletim mostre APENAS as vendas deste operador específico.
   let _garcomIdFiltro = null;
   if (sessao.usuario_email) {
-    const { data: _p } = await supa
-      .from("perfis_acesso")
-      .select("id")
-      .eq("email", sessao.usuario_email)
-      .maybeSingle();
+    const { data: _p } = await supa.from("perfis_acesso").select("id").eq("email", sessao.usuario_email).maybeSingle();
     if (_p) _garcomIdFiltro = _p.id;
   }
 
   let peds = [];
-  
-  // 2. Busca os pedidos filtrando pelo ID do operador
   if (_garcomIdFiltro) {
     const { data: pedidosData } = await supa
-      .from("pedidos")
-      .select("*")
-      .neq("status", "cancelado")
-      .gte("created_at", sessao.aberto_em)
-      .lte("created_at", fimJanela)
-      .eq("garcom_id", _garcomIdFiltro); // <-- AQUI ESTÁ O FILTRO SALVADOR
-
+      .from("pedidos").select("*").neq("status", "cancelado")
+      .gte("created_at", sessao.aberto_em).lte("created_at", fimJanela)
+      .eq("garcom_id", _garcomIdFiltro);
     peds = pedidosData || [];
-  } else {
-    console.warn(`[CalcularResumo] Usuário não encontrado na tabela perfis_acesso: ${sessao.usuario_email}`);
   }
 
-  // 3. Busca as movimentações de caixa (abertura, sangria, despesas, etc) desta sessão específica
-  const { data: movsData } = await supa
-    .from("movimentacoes_caixa")
-    .select("*")
-    .eq("sessao_id", sessao.id);
+  const { data: movsData } = await supa.from("movimentacoes_caixa").select("*").eq("sessao_id", sessao.id);
   const movs = movsData || [];
 
-  let faturamento = 0, totalEfetivo = 0, totalPix = 0, totalCartao = 0,
-    totalTransf = 0, totalQrCelular = 0, totalQrMaquina = 0, totalNaNota = 0,
-    custoEntregas = 0, qtdPedidos = 0;
+  let faturamento = 0, totalEfetivo = 0, totalPix = 0, totalCartao = 0, totalTransf = 0, totalQrCelular = 0, totalQrMaquina = 0, totalNaNota = 0, custoEntregas = 0, qtdPedidos = 0;
 
   peds.forEach((p) => {
     const val = p.total_geral || 0;
-    const pag = (p.forma_pagamento || "").toLowerCase();
+    const pag = (p.forma_pagamento || "").toLowerCase().trim();
     const isNaNota = pag === "nanota";
     const isQuitado = !!p.quitado_em || (p.obs_pagamento || "").toLowerCase().includes("[quitado");
 
@@ -3446,60 +3031,64 @@ async function _calcularResumoSessaoLegado(sessao, fechadoEmOverride) {
     faturamento += val;
     qtdPedidos++;
 
+    // Lógica blindada de distribuição
     if (isNaNota && isQuitado) {
-      let formaQuitacao = p.forma_pagamento_quitacao;
+      let formaQuitacao = p.forma_pagamento_quitacao || null;
       if (!formaQuitacao) {
         const m = (p.obs_pagamento || "").match(/Forma:\s*([A-Za-zÀ-ú]+)/i);
         if (m) formaQuitacao = m[1];
       }
       const m2 = (formaQuitacao || "").toLowerCase();
       if (m2.includes("pix")) totalPix += val;
-      else if (m2.includes("transfer")) totalTransf += val;
-      else if (m2.includes("cartao") || m2.includes("cartão")) totalCartao += val;
-      else if (m2 === "qrmaquina" || m2 === "qrmarina") totalQrMaquina += val;
+      else if (m2.includes("transfer") || m2.includes("alias")) totalTransf += val;
+      else if (m2.includes("cartao") || m2.includes("cartão") || m2.includes("tarjeta")) totalCartao += val;
+      else if (m2.includes("qrmaquina") || m2.includes("qrmarina")) totalQrMaquina += val;
       else if (m2.includes("qr")) totalQrCelular += val;
       else totalEfetivo += val;
-    } else if (pag.includes("pix")) totalPix += val;
-    else if (pag.includes("transfer")) totalTransf += val;
-    else if (pag.includes("cartao") || pag.includes("cartão") || pag.includes("tarjeta")) totalCartao += val;
-    else if (pag === "qrmaquina" || pag === "qrmarina") totalQrMaquina += val;
-    else if (pag.includes("qr")) totalQrCelular += val;
-    else if (pag.includes("efetivo") || pag.includes("dinheiro")) totalEfetivo += val;
-
-    if (p.tipo_entrega === "delivery") {
-      custoEntregas += p.frete_motoboy || TAXA_MOTOBOY || 0;
+    } else if (pag === "multipagamento") {
+      let partes = [];
+      try { partes = JSON.parse(p.obs_pagamento || "[]"); } catch (_) {}
+      if (Array.isArray(partes) && partes.length > 0) {
+        let somaPartes = 0;
+        partes.forEach((parte) => {
+          const vParte = parseFloat(parte.valor) || 0;
+          somaPartes += vParte;
+          const m2 = (parte.metodo || "").toLowerCase();
+          if (m2.includes("pix")) totalPix += vParte;
+          else if (m2.includes("transfer") || m2.includes("alias")) totalTransf += vParte;
+          else if (m2.includes("cartao") || m2.includes("cartão") || m2.includes("tarjeta")) totalCartao += vParte;
+          else if (m2.includes("qrmaquina") || m2.includes("qrmarina")) totalQrMaquina += vParte;
+          else if (m2.includes("qr")) totalQrCelular += vParte;
+          else totalEfetivo += vParte;
+        });
+        if (somaPartes < val) totalCartao += (val - somaPartes);
+      } else {
+        totalCartao += val;
+      }
+    } else {
+      if (pag.includes("pix")) totalPix += val;
+      else if (pag.includes("transfer") || pag.includes("alias")) totalTransf += val;
+      else if (pag.includes("cartao") || pag.includes("cartão") || pag.includes("tarjeta")) totalCartao += val;
+      else if (pag.includes("qrmaquina") || pag.includes("qrmarina")) totalQrMaquina += val;
+      else if (pag.includes("qr")) totalQrCelular += val;
+      else totalEfetivo += val;
     }
+
+    if (p.tipo_entrega === "delivery") custoEntregas += p.frete_motoboy || TAXA_MOTOBOY || 0;
   });
 
-  const totalSaidas = movs
-    .filter((m) => m.tipo === "despesa" || m.tipo === "sangria")
-    .reduce((a, m) => a + (parseFloat(m.valor) || 0), 0);
-  const totalEntradas = movs
-    .filter((m) => m.tipo === "entrada" || m.tipo === "suprimento")
-    .reduce((a, m) => a + (parseFloat(m.valor) || 0), 0);
-
+  const totalSaidas = movs.filter((m) => m.tipo === "despesa" || m.tipo === "sangria").reduce((a, m) => a + (parseFloat(m.valor) || 0), 0);
+  const totalEntradas = movs.filter((m) => m.tipo === "entrada" || m.tipo === "suprimento").reduce((a, m) => a + (parseFloat(m.valor) || 0), 0);
   const resultado = faturamento + totalEntradas - custoEntregas - totalSaidas;
 
   return {
     abertura_em: sessao.aberto_em,
     fechamento_em: fimJanela,
     valor_abertura: sessao.valor_abertura || 0,
-    faturamento,
-    qtd_pedidos: qtdPedidos,
-    custo_entregas: custoEntregas,
-    total_saidas: totalSaidas,
-    total_entradas: totalEntradas,
+    faturamento, qtd_pedidos: qtdPedidos, custo_entregas: custoEntregas, total_saidas: totalSaidas, total_entradas: totalEntradas,
     resultado_operacional: resultado,
     dinheiro_na_gaveta: (sessao.valor_abertura || 0) + totalEfetivo - totalSaidas,
-    por_forma_pagamento: {
-      efetivo: totalEfetivo,
-      pix: totalPix,
-      cartao: totalCartao,
-      transferencia: totalTransf,
-      qr_celular: totalQrCelular,
-      qr_maquina: totalQrMaquina,
-      na_nota_quitado: totalNaNota,
-    },
+    por_forma_pagamento: { efetivo: totalEfetivo, pix: totalPix, cartao: totalCartao, transferencia: totalTransf, qr_celular: totalQrCelular, qr_maquina: totalQrMaquina, na_nota_quitado: totalNaNota },
     _calculadoAgora: true,
   };
 }
@@ -5205,69 +4794,136 @@ function enviarRotaZap() {
   const opt = selMoto.options[selMoto.selectedIndex];
   const nomeMoto = opt.dataset.nome || opt.text;
   
-  // Limpa o telefone e garante o DDI 595 (Paraguai)
   let telMoto = (opt.dataset.tel || "").replace(/\D/g, "");
   if (telMoto.length > 0) {
-    if (telMoto.startsWith("0")) {
-      telMoto = "595" + telMoto.substring(1);
-    } else if (!telMoto.startsWith("595")) {
-      telMoto = "595" + telMoto;
-    }
+    if (telMoto.startsWith("0")) telMoto = "595" + telMoto.substring(1);
+    else if (!telMoto.startsWith("595") && telMoto.length <= 10) telMoto = "595" + telMoto;
   }
 
-  let msg = `🛵 *ROTA - ${nomeMoto.toUpperCase()}*\n\n`;
+  let msg = `🛵 *ROTA DE ENTREGAS - ${nomeMoto.toUpperCase()}*\n`;
+  msg += `🗓 ${new Date().toLocaleDateString('es-PY')} às ${new Date().toLocaleTimeString('es-PY', {hour: '2-digit', minute:'2-digit'})}\n\n`;
+  
   let coords = [];
-  let taxaTotal = 0;
+  let taxaEntregaTotal = 0;
+  let totalCobrarClientes = 0;
+  let qtdPedidos = 0;
 
   checks.forEach((chk) => {
     try {
       const p = JSON.parse(decodeURIComponent(chk.value));
+      qtdPedidos++;
 
-      // Atualiza o status no banco
+      // Atualiza no banco (não afeta se já estiver como saiu_entrega)
       supa.from("pedidos").update({ status: "saiu_entrega", motoboy_id: selMoto.value }).eq("id", p.id).then();
 
+      msg += `━━━━━━━━━━━━━━━━━━━━\n`;
       msg += `📦 *PEDIDO #${p.uid_temporal || p.id}*\n`;
-      msg += `👤 ${p.cliente_nome || "Cliente"} | 📞 ${p.cliente_telefone || ""}\n`;
+      
+      // Limpa o "BALCÃO - " do nome para ficar bonito
+      let nomeCliente = (p.cliente_nome || "Cliente").replace(/BALC[AÃ]O\s*-\s*/i, '').trim();
+      msg += `👤 *Cliente:* ${nomeCliente}\n`;
+
+      let telCliente = (p.cliente_telefone || "").replace(/\D/g, "");
+      if (telCliente) {
+        if (telCliente.startsWith("0")) telCliente = "595" + telCliente.substring(1);
+        else if (!telCliente.startsWith("595") && telCliente.length <= 10) telCliente = "595" + telCliente;
+        msg += `📱 *Teléfono:* https://wa.me/${telCliente}\n`;
+      }
+
+      if (p.tipo_entrega === "delivery") {
+        if (p.geo_lat && p.geo_lng) {
+          msg += `📍 *Ubicación:* https://www.google.com/maps/search/?api=1&query=${p.geo_lat},${p.geo_lng}\n`;
+          coords.push(`${p.geo_lat},${p.geo_lng}`);
+        } else if (p.endereco_entrega && p.endereco_entrega.toLowerCase() !== "delivery") {
+          msg += `📍 *Ubicación:* https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.endereco_entrega)}\n`;
+        } else {
+          msg += `📍 *Ubicación:* A combinar / No informada\n`;
+        }
+      } else {
+        msg += `📍 *Local:* ${p.endereco_entrega || "Retirada / Balcão"}\n`;
+      }
 
       if (p.itens && Array.isArray(p.itens)) {
+        const _isBebida = (i) => {
+          if (i.es_bebida) return true;
+          const cat = (i.categoria_slug || i.cat || "").toLowerCase();
+          const _SLUGS_BEBIDA = [
+            "bebida", "bebidas", "drink", "drinks", "refrigerante", "refrigerantes", 
+            "gaseosa", "gaseosas", "suco", "sucos", "jugo", "jugos", "cerveja", 
+            "cervejas", "cerveza", "cervezas", "trago", "tragos", "licor", "licores", 
+            "agua", "aguas", "água", "águas", "vino", "vinos", "vinho", "vinhos"
+          ];
+          return _SLUGS_BEBIDA.some(s => cat === s || cat.includes(s));
+        };
+
+        // Formata o item para incluir variação e montagem (sabores)
         const _fmtItem = (b) => {
-          let txt = `${b.qtd || b.q || 1}x ${b.nome || b.n || "Item"}`;
-          const v = b.variacao || b.t || "";
-          if (v) txt += ` (${v})`;
-          const obs = b.obs || b.o;
-          if (obs) txt += ` ⚠ ${obs}`;
+          let txt = `- ${b.qtd || b.q || 1}x ${b.nome || b.n}`;
+          if (b.variacao || b.t) txt += ` (${b.variacao || b.t})`;
+          
+          const mont = b.montagem || b.m || [];
+          if (Array.isArray(mont) && mont.length > 0) {
+            const itensStr = mont.map((x) => (typeof x === "object" ? x.nome || "" : x)).filter(Boolean).join(", ");
+            if (itensStr) txt += ` [${itensStr}]`;
+          }
+          if (b.obs || b.o) txt += ` ⚠️ *${b.obs || b.o}*`;
           return txt;
         };
-        msg += `📦 *Itens:* ` + p.itens.map(_fmtItem).join(" | ") + `\n`;
+
+        const bebidas = p.itens.filter(_isBebida);
+        const comidas = p.itens.filter((i) => !_isBebida(i));
+
+        if (bebidas.length > 0) {
+          msg += `\n🥤 *BEBIDAS (LLEVAR):*\n`;
+          bebidas.forEach((b) => { msg += `${_fmtItem(b)}\n`; });
+        }
+        
+        if (comidas.length > 0) {
+          msg += `\n🍔 *ÍTEMS:*\n`;
+          comidas.forEach((c) => { msg += `${_fmtItem(c)}\n`; });
+        }
       }
 
-      if (p.geo_lat && p.geo_lng) {
-        msg += `📍 https://www.google.com/maps/search/?api=1&query=${p.geo_lat},${p.geo_lng}\n`;
-        coords.push(`${p.geo_lat},${p.geo_lng}`);
-      } else {
-        msg += `🏠 ${p.endereco_entrega || "Retirada"}\n`;
-      }
-
-      const forma = (p.forma_pagamento || "").toLowerCase();
-      const totalGeral = p.total_geral || 0;
+      msg += `\n`;
+      const forma = (p.forma_pagamento || "").trim().toLowerCase();
+      const totalGeral = Number(p.total_geral || 0);
       const totalFmt = totalGeral.toLocaleString("es-PY");
 
-      if (forma.includes("pix") || forma.includes("transfer")) {
-        msg += `✅ *PAGO (Pix/Transf)*\n`;
+      if (forma.includes("pix") || forma.includes("transfer") || forma.includes("alias")) {
+        msg += `✅ *PAGO (${p.forma_pagamento})*\n`;
+      } else if (forma.includes("tarjeta") || forma.includes("cartao") || forma.includes("cartão")) {
+        msg += `💳 *COBRAR TARJETA:* Gs ${totalFmt}\n`;
+        totalCobrarClientes += totalGeral;
+      } else if (forma === "multipagamento") {
+        msg += `🔀 *PAGO DIVIDIDO:*\n`;
+        try {
+          const partes = JSON.parse(p.obs_pagamento || "[]");
+          let faltaPagar = false;
+          partes.forEach((x) => { 
+            msg += `- ${x.metodo}: Gs ${Number(x.valor).toLocaleString("es-PY")}\n`; 
+            if (x.metodo.toLowerCase().includes("efetivo") || x.metodo.toLowerCase().includes("dinheiro")) {
+              faltaPagar = true;
+            }
+          });
+          if (faltaPagar) totalCobrarClientes += totalGeral;
+        } catch(e) { msg += `${p.obs_pagamento}\n`; }
       } else {
-        msg += `💰 *COBRAR: Gs ${totalFmt}*\n`;
+        msg += `💵 *COBRAR EFECTIVO:* Gs ${totalFmt}\n`;
+        totalCobrarClientes += totalGeral;
+        
         const obsPag = p.obs_pagamento || "";
         const nums = obsPag.match(/\d+/g);
         if (nums) {
           let valorTroco = parseInt(nums.join(""));
           if (valorTroco < 1000) valorTroco *= 1000;
           if (valorTroco > totalGeral) {
-            msg += `🔄 Troco p/ ${valorTroco.toLocaleString()} (Levar Gs ${(valorTroco - totalGeral).toLocaleString()})\n`;
+            msg += `🔄 *VUELTA:* Paga con Gs ${valorTroco.toLocaleString("es-PY")} (Llevar vuelto: Gs ${(valorTroco - totalGeral).toLocaleString("es-PY")})\n`;
           }
         }
       }
-      msg += `-----------------\n`;
-      taxaTotal += (parseFloat(p.frete_motoboy) || TAXA_MOTOBOY || 0);
+
+      taxaEntregaTotal += (parseFloat(p.frete_motoboy) || TAXA_MOTOBOY || 0);
+
     } catch (e) {
       console.error("Erro ao ler pedido no Zap:", e);
     }
@@ -5276,13 +4932,23 @@ function enviarRotaZap() {
   if (coords.length > 0) {
     const latLoja = COORD_LOJA.lat || "";
     const lngLoja = COORD_LOJA.lng || "";
-    msg += `\n🗺️ *ROTA NO MAPA:*\nhttps://www.google.com/maps/dir/${latLoja},${lngLoja}/${coords.join("/")}\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `🗺 *RUTA COMPLETA EN GOOGLE MAPS:*\n`;
+    msg += `https://www.google.com/maps/dir/${latLoja},${lngLoja}/${coords.join("/")}\n\n`;
   }
 
-  msg += `\n🏍️ *Taxa Total: Gs ${taxaTotal.toLocaleString("es-PY")}*`;
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `🏍 *ENTREGAS:* ${qtdPedidos}\n`;
+  
+  if (totalCobrarClientes > 0) {
+    msg += `💰 *TOTAL A COBRAR (Clientes):* Gs ${totalCobrarClientes.toLocaleString("es-PY")}\n`;
+  }
+  msg += `💵 *CUSTO DE ENTREGA (Repasse):* Gs ${taxaEntregaTotal.toLocaleString("es-PY")}`;
 
-  // Se o telefone for válido, envia direto. Se não, abre a tela de seleção do WhatsApp.
-  const waUrl = telMoto ? `https://wa.me/${telMoto}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  // Garante que a string seja codificada corretamente para o WhatsApp Web/Mobile
+  const msgEncode = encodeURIComponent(msg).replace(/'/g, "%27").replace(/\(/g, "%28").replace(/\)/g, "%29");
+  
+  const waUrl = telMoto ? `https://wa.me/${telMoto}?text=${msgEncode}` : `https://wa.me/?text=${msgEncode}`;
   window.open(waUrl, "_blank");
 
   setTimeout(() => {
@@ -5291,6 +4957,19 @@ function enviarRotaZap() {
   }, 2000);
 }
 
+function enviarRotaZapIndividual(pedidoString) {
+  const opt = document.getElementById("sel-motoboy");
+  if (!opt.value) return alert("Selecione o motoboy no topo da tela primeiro!");
+
+  const checkFalso = document.createElement('input');
+  checkFalso.type = 'checkbox';
+  checkFalso.className = 'check-pedido-temp';
+  checkFalso.value = pedidoString; 
+  
+  document.body.appendChild(checkFalso);
+  enviarRotaZap(); // Chama a função principal que monta a mensagem bonitona
+  document.body.removeChild(checkFalso);
+}
 // =========================================
 // 8. PRODUTOS E CRUD COMPLETO (RESTAURADO)
 // =========================================
@@ -13039,35 +12718,13 @@ function atualizarCarrinhoPDV() {
   if (!lista) return;
 
   lista.innerHTML = "";
-  let total = 0;
+  let subtotal = 0;
 
-  const cashDesc = pdvGetCashbackDesconto(total);
-  total = Math.max(0, total - cashDesc);
-  const elCash = document.getElementById("pdv-row-cashback");
-  if (elCash) {
-    elCash.style.display = cashDesc > 0 ? "flex" : "none";
-    const elCashVal = document.getElementById("balcao-cashback");
-    if (elCashVal) elCashVal.textContent = cashDesc.toLocaleString("es-PY");
-  }
-
-  // ── Helper: cria card de item ────────────────────────────────
+  // Helper: cria card de item
   const _fmtGs = (v) => "Gs " + v.toLocaleString("es-PY");
-  const _fmtPeso = (g) =>
-    g >= 1000
-      ? (g / 1000)
-          .toFixed(3)
-          .replace(/\.?0+$/, "")
-          .replace(".", ",") + " kg"
-      : g + "g";
+  const _fmtPeso = (g) => g >= 1000 ? (g / 1000).toFixed(3).replace(/\.?0+$/, '').replace('.', ',') + ' kg' : g + 'g';
 
-  const _criarCard = (
-    nome,
-    sub,
-    precoUnit,
-    precoTotal,
-    acoes,
-    extraClass = "",
-  ) => {
+  const _criarCard = (nome, sub, precoUnit, precoTotal, acoes, extraClass = "") => {
     const d = document.createElement("div");
     d.className = "pdv-card-item" + (extraClass ? " " + extraClass : "");
     d.innerHTML = `
@@ -13080,17 +12737,12 @@ function atualizarCarrinhoPDV() {
     return d;
   };
 
-  // ── Itens existentes da mesa (snapshot do DB) ──────────────────
-  const itensExistentes = window._mesaAbertaPedido
-    ? Array.isArray(window._mesaAbertaPedido.itens)
-      ? window._mesaAbertaPedido.itens
-      : []
-    : [];
-
+  // 1. Itens existentes da mesa (se houver)
+  const itensExistentes = window._mesaAbertaPedido && Array.isArray(window._mesaAbertaPedido.itens) ? window._mesaAbertaPedido.itens : [];
   if (itensExistentes.length > 0) {
     const sec = document.createElement("div");
     sec.className = "pdv-sec-title";
-    sec.textContent = t("pdv.itens_lancados");
+    sec.textContent = t('pdv.itens_lancados') || "Itens já lançados";
     lista.appendChild(sec);
 
     itensExistentes.forEach((item, idx) => {
@@ -13098,39 +12750,30 @@ function atualizarCarrinhoPDV() {
       const qtd = item.qtd || item.q || 1;
       const nome = item.nome || item.n || "Item";
       const preco = item.preco || item.p || 0;
-      total += preco * qtd;
+      subtotal += preco * qtd;
 
       const acoes = entregue
         ? `<span class="pdv-badge-entregue">✓ Entregue</span>`
-        : `<button class="pdv-card-btn pdv-card-btn-ok" onclick="baixarItemMesa(${window._mesaAbertaId},${idx})">
-            <i class="fas fa-check"></i> ${t("pdv.baixar")}</button>`;
+        : `<button class="pdv-card-btn pdv-card-btn-ok" onclick="baixarItemMesa(${window._mesaAbertaId},${idx})"><i class="fas fa-check"></i> Baixar</button>`;
 
-      lista.appendChild(
-        _criarCard(
-          nome + (entregue ? ' <span class="pdv-badge-entregue">✓</span>' : ""),
-          `${qtd}× un.`,
-          preco,
-          preco * qtd,
-          acoes,
-          "pdv-card-existente" + (entregue ? " pdv-card-entregue" : ""),
-        ),
-      );
+      lista.appendChild(_criarCard(
+        nome + (entregue ? ' <span class="pdv-badge-entregue">✓</span>' : ""),
+        `${qtd}× un.`, preco, preco * qtd, acoes,
+        "pdv-card-existente" + (entregue ? " pdv-card-entregue" : "")
+      ));
     });
   }
 
-  // ── Novos itens (carrinhoPDV) ──────────────────────────────────
+  // 2. Novos itens (carrinhoPDV)
   if (carrinhoPDV.length > 0) {
     const sec2 = document.createElement("div");
     sec2.className = "pdv-sec-title pdv-sec-novo";
-    sec2.textContent =
-      itensExistentes.length > 0 ? "+ Nuevos itens" : "Itens del pedido";
+    sec2.textContent = itensExistentes.length > 0 ? "+ Nuevos itens" : "Itens del pedido";
     lista.appendChild(sec2);
 
     carrinhoPDV.forEach((item, idx) => {
-      total += item.preco * item.qtd;
-      const obsHtml = item.obs
-        ? `<span class="pdv-card-obs">📝 ${item.obs}</span>`
-        : "";
+      subtotal += item.preco * item.qtd;
+      const obsHtml = item.obs ? `<span class="pdv-card-obs">📝 ${item.obs}</span>` : "";
       let sub, precoUnit, acoes;
 
       if (item._isKg) {
@@ -13140,10 +12783,7 @@ function atualizarCarrinhoPDV() {
                  <button class="pdv-card-btn pdv-card-btn-del" onclick="removerItemPDV(${idx})">🗑️ Eliminar</button>`;
       } else {
         sub = null;
-        precoUnit =
-          item._precoUnitario !== undefined
-            ? item._precoUnitario
-            : item.preco / item.qtd;
+        precoUnit = item._precoUnitario !== undefined ? item._precoUnitario : item.preco / item.qtd;
         acoes = `
           <div class="pdv-card-qtd-ctrl">
             <button class="pdv-card-qtd-btn" onclick="pdvAlterarQtd(${idx},-1)">−</button>
@@ -13154,15 +12794,7 @@ function atualizarCarrinhoPDV() {
           <button class="pdv-card-btn pdv-card-btn-del" onclick="removerItemPDV(${idx})">🗑️ Eliminar</button>`;
       }
 
-      lista.appendChild(
-        _criarCard(
-          item.nome + obsHtml,
-          sub,
-          precoUnit,
-          item.preco * item.qtd,
-          acoes,
-        ),
-      );
+      lista.appendChild(_criarCard(item.nome + obsHtml, sub, precoUnit, item.preco * item.qtd, acoes));
     });
   }
 
@@ -13173,53 +12805,48 @@ function atualizarCarrinhoPDV() {
     lista.appendChild(vazio);
   }
 
-  if (totalEl) totalEl.innerText = total.toLocaleString("es-PY");
-
-  // ── Desconto ──────────────────────────────────────────────────
-  const descTipo =
-    document.getElementById("pdv-desconto-tipo")?.value || "fixo";
-  const descValRaw =
-    parseFloat(document.getElementById("pdv-desconto-val")?.value || "0") || 0;
+  // 3. Cálculos de Desconto e Frete
+  const descTipo = document.getElementById("pdv-desconto-tipo")?.value || "fixo";
+  const descValRaw = parseFloat(document.getElementById("pdv-desconto-val")?.value || "0") || 0;
   let desconto = 0;
   if (descValRaw > 0) {
-    desconto =
-      descTipo === "percentual"
-        ? Math.round((total * descValRaw) / 100)
-        : Math.round(descValRaw);
-    desconto = Math.min(desconto, total);
+    desconto = descTipo === "percentual" ? Math.round((subtotal * descValRaw) / 100) : Math.round(descValRaw);
+    desconto = Math.min(desconto, subtotal);
   }
-  const totalComDesc = total - desconto;
-
-  // Atualiza subtotal
-  const subEl = document.getElementById("balcao-subtotal");
-  if (subEl) subEl.innerText = total.toLocaleString("es-PY");
-
-  // Linha de desconto
-  const rowDesc = document.getElementById("pdv-row-desconto");
-  const descEl = document.getElementById("balcao-desconto");
-  if (rowDesc) rowDesc.style.display = desconto > 0 ? "flex" : "none";
-  if (descEl) descEl.innerText = desconto.toLocaleString("es-PY");
-
-  // Total final
-  if (totalEl) totalEl.innerText = totalComDesc.toLocaleString("es-PY");
-
-  // Frete (delivery)
-  const frete =
-    parseInt(document.getElementById("balcao-frete")?.value || "0") || 0;
-  const tipoEntrega =
-    document.getElementById("balcao-tipo-entrega")?.value || "balcao";
+  
+  const totalComDesc = subtotal - desconto;
+  const frete = parseInt(document.getElementById("balcao-frete")?.value || "0") || 0;
+  const tipoEntrega = document.getElementById("balcao-tipo-entrega")?.value || "balcao";
   const totalFinal = totalComDesc + (tipoEntrega === "delivery" ? frete : 0);
+
+  // 4. Atualiza a UI (Tela Principal)
   if (totalEl) totalEl.innerText = totalFinal.toLocaleString("es-PY");
-  window._pdvTotalBaseSemTaxas = totalFinal;
+  const subEl = document.getElementById("balcao-subtotal");
+  if (subEl) subEl.innerText = subtotal.toLocaleString("es-PY");
+
+  // 5. Atualiza a UI (Dentro do Modal)
+  const modalTotal = document.getElementById("pdv-pagto-total");
+  if (modalTotal) modalTotal.innerText = totalFinal.toLocaleString("es-PY");
+  
+  const descLabel = document.getElementById("pdv-pagto-desconto-label");
+  const descVal = document.getElementById("pdv-pagto-desconto-val");
+  if (descLabel && descVal) {
+    if (desconto > 0) {
+      descLabel.style.display = "block";
+      descVal.innerText = desconto.toLocaleString("es-PY");
+    } else {
+      descLabel.style.display = "none";
+    }
+  }
 
   // Atualiza barra inferior mobile
   const mobileQtd = document.getElementById("pdv-mobile-qtd");
   const mobileTot = document.getElementById("pdv-mobile-total-val");
   const qtdTotal = carrinhoPDV.reduce((a, i) => a + i.qtd, 0);
-  if (mobileQtd)
-    mobileQtd.textContent = qtdTotal + (qtdTotal === 1 ? " item" : " itens");
+  if (mobileQtd) mobileQtd.textContent = qtdTotal + (qtdTotal === 1 ? " item" : " itens");
   if (mobileTot) mobileTot.textContent = totalFinal.toLocaleString("es-PY");
 
+  window._pdvTotalBaseSemTaxas = totalFinal;
   atualizarInfoPagPDV(totalFinal);
 }
 
@@ -13757,278 +13384,143 @@ function _coletarMultiPagamentoPDV() {
 }
 
 async function salvarPedidoBalcao() {
-  if (carrinhoPDV.length === 0 && !window._mesaAbertaId)
-    return alert(t("alert.carrinho_vazio"));
-  if (carrinhoPDV.length === 0 && window._mesaAbertaId)
+  if (carrinhoPDV.length === 0 && !window._mesaAbertaId) {
+    return alert(t("alert.carrinho_vazio") || "Carrinho vazio!");
+  }
+  if (carrinhoPDV.length === 0 && window._mesaAbertaId) {
     return alert("Agregue al menos 1 ítem nuevo antes de lanzar.");
+  }
 
-  // ─────────────────────────────────────────────────────────────
-  // TRAVA DE CAIXA — nenhuma venda é liberada sem sessão aberta.
-  // Ao confirmar, abre o modal de abertura de caixa e interrompe o
-  // fluxo para o operador registrar o fundo de troco.
-  // ─────────────────────────────────────────────────────────────
   await _carregarSessaoCaixa({ propria: true });
   if (!_sessaoCaixaAtiva) {
-    const _okAbrir = confirm(
-      "⚠️ CAIXA FECHADO\n\n" +
-        "A venda só será liberada após a abertura do caixa.\n\n" +
-        "Deseja abrir o caixa agora?",
-    );
-    if (_okAbrir) {
-      abrirModalCaixa("abertura");
-    }
+    const _okAbrir = confirm("⚠️ CAIXA FECHADO\n\nA venda só será liberada após a abertura do caixa.\n\nDeseja abrir o caixa agora?");
+    if (_okAbrir) abrirModalCaixa("abertura");
     return;
   }
 
   const _soKg = carrinhoPDV.length > 0 && carrinhoPDV.every((i) => i._isKg);
 
   let dadosFactura = null;
-  if (document.getElementById("pdv-check-factura").checked) {
+  if (document.getElementById("pdv-check-factura")?.checked) {
     const ruc = document.getElementById("pdv-cli-ruc").value.trim();
     const razao = document.getElementById("pdv-cli-razao").value.trim();
-    if (ruc || razao) {
-      dadosFactura = { ruc, razao };
-    } else {
-      dadosFactura = { ruc: "", razao: "Consumidor Final" };
-    }
+    dadosFactura = (ruc || razao) ? { ruc, razao } : { ruc: "", razao: "Consumidor Final" };
   }
 
   const mesa = document.getElementById("balcao-mesa").value.trim();
-  const cli =
-    document.getElementById("balcao-cliente").value.trim() || "Cliente";
+  const cli = document.getElementById("balcao-cliente").value.trim() || "Cliente";
   const tel = document.getElementById("balcao-telefone").value.trim() || "";
   let pag = document.getElementById("balcao-pag").value;
   const pagFinalPDV = _resolvePagFinalPDV(pag);
 
-  const nomeFinal = mesa
-    ? `MESA ${mesa} - ${cli}`
-    : pag === "NaNota" && _pdvClienteNotaSel
-      ? _pdvClienteNotaSel.nome
-      : _soKg
-        ? `BALCÃO KG - ${cli}`
-        : `BALCÃO - ${cli}`;
+  const nomeFinal = mesa ? `MESA ${mesa} - ${cli}` : (pag === "NaNota" && _pdvClienteNotaSel ? _pdvClienteNotaSel.nome : (_soKg ? `BALCÃO KG - ${cli}` : `BALCÃO - ${cli}`));
 
-  const descTipo =
-    document.getElementById("pdv-desconto-tipo")?.value || "fixo";
-  const descValRaw =
-    parseFloat(document.getElementById("pdv-desconto-val")?.value || "0") || 0;
-  const subtotalBruto = carrinhoPDV.reduce(
-    (a, i) => a + (i.preco || 0) * (i.qtd || 1),
-    0,
-  );
+  const descTipo = document.getElementById("pdv-desconto-tipo")?.value || "fixo";
+  const descValRaw = parseFloat(document.getElementById("pdv-desconto-val")?.value || "0") || 0;
+  const subtotalBruto = carrinhoPDV.reduce((a, i) => a + (i.preco || 0) * (i.qtd || 1), 0);
+  
   let descontoAplicado = 0;
   if (descValRaw > 0) {
-    descontoAplicado =
-      descTipo === "percentual"
-        ? Math.round((subtotalBruto * descValRaw) / 100)
-        : Math.round(descValRaw);
+    descontoAplicado = descTipo === "percentual" ? Math.round((subtotalBruto * descValRaw) / 100) : Math.round(descValRaw);
     descontoAplicado = Math.min(descontoAplicado, subtotalBruto);
   }
 
   let obsPagPDV = "Pagamento no Balcão";
   if (pag === "Multipagamento") {
     const partesPDV = _coletarMultiPagamentoPDV();
-    if (partesPDV.length === 0) {
-      alert("Adicione ao menos 1 forma de pagamento!");
-      return;
-    }
-    const totalPedido = parseInt(
-      document.getElementById("balcao-total")?.innerText.replace(/\D/g, "") ||
-        "0",
-    );
+    if (partesPDV.length === 0) return alert("Adicione ao menos 1 forma de pagamento!");
+    
+    const totalPedido = parseInt(document.getElementById("pdv-pagto-total")?.innerText.replace(/\D/g, "") || "0");
     const somaPartes = partesPDV.reduce((a, p) => a + p.valor, 0);
     if (Math.abs(somaPartes - totalPedido) > 1) {
-      alert(
-        `⚠️ El total de las formas (Gs ${somaPartes.toLocaleString("es-PY")}) no coincide con el total del pedido (Gs ${totalPedido.toLocaleString("es-PY")}).`,
-      );
-      return;
+      return alert(`⚠️ El total de las formas (Gs ${somaPartes.toLocaleString("es-PY")}) no coincide con el total (Gs ${totalPedido.toLocaleString("es-PY")}).`);
     }
     obsPagPDV = JSON.stringify(partesPDV);
   }
 
   let _mensSplitInfo = null;
   if (pag === "Mensalista") {
-    if (!_pdvMensalistaSel) {
-      alert("Seleccione un mensualista antes de finalizar.");
-      return;
-    }
-
-    const totalPedido = parseInt(
-      document.getElementById("balcao-total")?.innerText.replace(/\D/g, "") ||
-        "0",
-    );
+    if (!_pdvMensalistaSel) return alert("Seleccione un mensualista antes de finalizar.");
+    
+    const totalPedido = parseInt(document.getElementById("pdv-pagto-total")?.innerText.replace(/\D/g, "") || "0");
     const saldoVal = Math.round(Number(_pdvMensalistaSel.valor_restante || 0));
 
     if (saldoVal <= 0) {
-      alert(
-        `⛔ Este mensalista no tiene saldo disponible.\n\n` +
-          `Saldo: Gs ${saldoVal.toLocaleString("es-PY")}\n` +
-          `Total: Gs ${totalPedido.toLocaleString("es-PY")}\n\n` +
-          `Renueve el plan o elija otra forma de pago.`,
-      );
-      return;
+      return alert(`⛔ Este mensalista no tiene saldo disponible.\n\nSaldo: Gs ${saldoVal.toLocaleString("es-PY")}\nTotal: Gs ${totalPedido.toLocaleString("es-PY")}`);
     }
 
     if (totalPedido > saldoVal) {
-      const complemento = document.getElementById(
-        "pdv-mens-metodo-resto",
-      )?.value;
-      if (!complemento) {
-        alert(
-          "⚠️ Saldo insuficiente. Seleccione la forma de pago complementaria.",
-        );
-        return;
-      }
+      const complemento = document.getElementById("pdv-mens-metodo-resto")?.value;
+      if (!complemento) return alert("⚠️ Saldo insuficiente. Seleccione la forma de pago complementaria.");
+      
       const valorComplemento = totalPedido - saldoVal;
-      _mensSplitInfo = {
-        saldoDebitar: saldoVal,
-        complemento,
-        valorComplemento,
-      };
+      _mensSplitInfo = { saldoDebitar: saldoVal, complemento, valorComplemento };
 
-      const ok = confirm(
-        `⚠️ Saldo insuficiente — cobrança dividida:\n\n` +
-          `  • Mensalista (saldo): Gs ${saldoVal.toLocaleString("es-PY")}\n` +
-          `  • ${complemento}: Gs ${valorComplemento.toLocaleString("es-PY")}\n\n` +
-          `Confirmar?`,
-      );
-      if (!ok) return;
+      if (!confirm(`⚠️ Saldo insuficiente — cobrança dividida:\n\n  • Mensalista (saldo): Gs ${saldoVal.toLocaleString("es-PY")}\n  • ${complemento}: Gs ${valorComplemento.toLocaleString("es-PY")}\n\nConfirmar?`)) return;
     }
 
     const nomeMens = _pdvMensalistaSel.clientes?.nome || "";
     if (_mensSplitInfo) {
       pagFinalPDV = "Multipagamento";
-      obsPagPDV = JSON.stringify([
-        { metodo: "Mensalista", valor: _mensSplitInfo.saldoDebitar },
-        {
-          metodo: _mensSplitInfo.complemento,
-          valor: _mensSplitInfo.valorComplemento,
-        },
-      ]);
+      obsPagPDV = JSON.stringify([{ metodo: "Mensalista", valor: _mensSplitInfo.saldoDebitar }, { metodo: _mensSplitInfo.complemento, valor: _mensSplitInfo.valorComplemento }]);
     } else {
       obsPagPDV = `Mensalista: ${nomeMens} (plano #${_pdvMensalistaSel.id})`;
     }
   }
 
   if (pag === "NaNota") {
-    if (!_pdvClienteNotaSel) {
-      alert("Seleccione el cliente para poner en la cuenta.");
-      return;
-    }
+    if (!_pdvClienteNotaSel) return alert("Seleccione el cliente para poner en la cuenta.");
     obsPagPDV = `Na Nota: ${_pdvClienteNotaSel.nome} (${_pdvClienteNotaSel.telefone || ""})`;
   }
 
   const novosItens = carrinhoPDV.map((i) => ({
-    id: i.id || Date.now() + Math.random(),
-    nome: i.nome,
-    preco: i.preco,
-    qtd: i.qtd,
-    variacao: i.variacao || "",
-    montagem: i.montagem || [],
-    obs: i.obs || "",
-    categoria_slug: i.categoria_slug || "",
-    es_bebida: i.es_bebida || false,
-    promocao_dia: i.promocao_dia || false,
-    ...(i._isKg
-      ? { peso_gramas: i.peso_gramas, preco_kg: i.preco_kg, _isKg: true }
-      : {}),
-    status_item: "pendente",
-    lancado_em: new Date().toISOString(),
+    id: i.id || Date.now() + Math.random(), nome: i.nome, preco: i.preco, qtd: i.qtd,
+    variacao: i.variacao || "", montagem: i.montagem || [], obs: i.obs || "",
+    categoria_slug: i.categoria_slug || "", es_bebida: i.es_bebida || false, promocao_dia: i.promocao_dia || false,
+    ...(i._isKg ? { peso_gramas: i.peso_gramas, preco_kg: i.preco_kg, _isKg: true } : {}),
+    status_item: "pendente", lancado_em: new Date().toISOString(),
   }));
 
   if (window._mesaAbertaId) {
-    const itensExistentes = Array.isArray(window._mesaAbertaPedido?.itens)
-      ? window._mesaAbertaPedido.itens
-      : [];
-
+    const itensExistentes = Array.isArray(window._mesaAbertaPedido?.itens) ? window._mesaAbertaPedido.itens : [];
     const itensMerged = [...itensExistentes, ...novosItens];
-    const novoTotal = itensMerged.reduce(
-      (acc, i) =>
-        acc + (i._isKg ? i.preco || 0 : (i.preco || 0) * (i.qtd || 1)),
-      0,
-    );
+    const novoTotal = itensMerged.reduce((acc, i) => acc + (i._isKg ? i.preco || 0 : (i.preco || 0) * (i.qtd || 1)), 0);
 
-    const { error } = await supa
-      .from("pedidos")
-      .update({
-        itens: itensMerged,
-        total_geral: novoTotal,
-        subtotal: novoTotal,
-        cliente_nome: nomeFinal,
-        cliente_telefone: tel,
-        status: "em_preparo",
-      })
-      .eq("id", window._mesaAbertaId);
+    const { error } = await supa.from("pedidos").update({
+      itens: itensMerged, total_geral: novoTotal, subtotal: novoTotal,
+      cliente_nome: nomeFinal, cliente_telefone: tel, status: "em_preparo",
+    }).eq("id", window._mesaAbertaId);
 
-    if (error) {
-      alert("Error al actualizar mesa: " + error.message);
-      return;
-    }
+    if (error) return alert("Error al actualizar mesa: " + error.message);
+
     await _descontarEstoqueVendaItens(novosItens);
-    _imprimirItensCozinhaMesaPDV(
-      novosItens,
-      `Mesa ${mesa}`,
-      nomeFinal,
-      window._mesaAbertaId,
-    );
+    _imprimirItensCozinhaMesaPDV(novosItens, `Mesa ${mesa}`, nomeFinal, window._mesaAbertaId);
 
-    window._mesaAbertaId = null;
-    window._mesaAbertaTotal = 0;
-    window._mesaAbertaPedido = null;
+    window._mesaAbertaId = null; window._mesaAbertaTotal = 0; window._mesaAbertaPedido = null;
     carrinhoPDV = [];
     document.getElementById("balcao-cliente").value = "";
     document.getElementById("balcao-mesa").value = "";
-    window._pdvTaxaCartaoValor = 0;
-    window._pdvTaxaCartaoPct = 0;
-    window._pdvTaxaServicoValor = 0;
-    window._pdvTaxaServicoPct = 0;
-    const _chkTS = document.getElementById("pdv-check-taxa-servico");
-    if (_chkTS) _chkTS.checked = false;
-    const _pctTS = document.getElementById("pdv-taxa-servico-pct");
-    if (_pctTS) _pctTS.style.display = "none";
+    window._pdvTaxaCartaoValor = 0; window._pdvTaxaCartaoPct = 0;
+    window._pdvTaxaServicoValor = 0; window._pdvTaxaServicoPct = 0;
+    { const _chkTS = document.getElementById("pdv-check-taxa-servico"); if (_chkTS) _chkTS.checked = false; }
     document.getElementById("balcao-telefone").value = "";
     document.querySelector(".pdv-mesa-aviso")?.remove();
-    atualizarCarrinhoPDV();
-    atualizarBarraMesasAtivas();
-    carregarMonitorMesas();
-    atualizarTextoBotaoPDV();
-    alert(`✅ ${novosItens.length} item(s) enviado(s) para a cozinha!`);
-    return;
+    
+    atualizarCarrinhoPDV(); atualizarBarraMesasAtivas(); carregarMonitorMesas(); atualizarTextoBotaoPDV();
+    fecharModal('modal-pagamento-pdv');
+    return alert(`✅ ${novosItens.length} item(s) enviado(s) para a cozinha!`);
   }
 
-  const tipoEntregaPDV =
-    document.getElementById("balcao-tipo-entrega")?.value || "balcao";
-  const fretePDV =
-    tipoEntregaPDV === "delivery"
-      ? parseInt(document.getElementById("balcao-frete")?.value || "0") || 0
-      : 0;
-  const enderecoPDV =
-    tipoEntregaPDV === "delivery"
-      ? document.getElementById("balcao-endereco")?.value.trim() || "Delivery"
-      : mesa
-        ? `Mesa ${mesa}`
-        : _soKg
-          ? "Balcão - Venda Kg"
-          : "Balcão";
+  const tipoEntregaPDV = document.getElementById("balcao-tipo-entrega")?.value || "balcao";
+  const fretePDV = tipoEntregaPDV === "delivery" ? parseInt(document.getElementById("balcao-frete")?.value || "0") || 0 : 0;
+  const enderecoPDV = tipoEntregaPDV === "delivery" ? document.getElementById("balcao-endereco")?.value.trim() || "Delivery" : mesa ? `Mesa ${mesa}` : _soKg ? "Balcão - Venda Kg" : "Balcão";
 
   const _geoLat = document.getElementById("balcao-geo-lat")?.value || null;
   const _geoLng = document.getElementById("balcao-geo-lng")?.value || null;
 
   if (mesa && tipoEntregaPDV !== "delivery") {
-    const { data: mesaExistente } = await supa
-      .from("pedidos")
-      .select("id, cliente_nome")
-      .eq("tipo_entrega", "balcao")
-      .neq("status", "entregue")
-      .neq("status", "cancelado")
-      .ilike("endereco_entrega", `Mesa ${mesa}`)
-      .maybeSingle();
-    if (mesaExistente) {
-      alert(
-        `⚠️ A Mesa ${mesa} já está aberta (pedido #${mesaExistente.id}${mesaExistente.cliente_nome ? " — " + mesaExistente.cliente_nome : ""}).\n\nAbra a comanda existente na aba Mesas em vez de criar um pedido novo, ou escolha outro número de mesa.`,
-      );
-      return;
-    }
+    const { data: mesaExistente } = await supa.from("pedidos").select("id, cliente_nome").eq("tipo_entrega", "balcao").neq("status", "entregue").neq("status", "cancelado").ilike("endereco_entrega", `Mesa ${mesa}`).maybeSingle();
+    if (mesaExistente) return alert(`⚠️ A Mesa ${mesa} já está aberta (pedido #${mesaExistente.id}).`);
   }
 
   const subtotalLiquido = subtotalBruto - descontoAplicado;
@@ -14036,107 +13528,46 @@ async function salvarPedidoBalcao() {
   const _taxaCartaoPctPDV = window._pdvTaxaCartaoPct || 0;
   const _taxaServicoValorPDV = window._pdvTaxaServicoValor || 0;
   const _taxaServicoPctPDV = window._pdvTaxaServicoPct || 0;
-  const totalNovo =
-    subtotalLiquido + fretePDV + _taxaCartaoValorPDV + _taxaServicoValorPDV;
+  const totalNovo = subtotalLiquido + fretePDV + _taxaCartaoValorPDV + _taxaServicoValorPDV;
   const _agora = new Date().toISOString();
 
   const pedido = {
-    status: _soKg
-      ? "entregue"
-      : _todosSemCozinha(carrinhoPDV)
-        ? "pronto_entrega"
-        : "em_preparo",
-    tipo_entrega: tipoEntregaPDV,
-    subtotal: subtotalBruto,
-    desconto_pdv_valor: descontoAplicado,
-    desconto_pdv_tipo: descontoAplicado > 0 ? descTipo : null,
-    frete_cobrado_cliente: fretePDV,
-    total_geral: totalNovo,
-    forma_pagamento: pagFinalPDV,
-    taxa_cartao_percentual: _taxaCartaoValorPDV > 0 ? _taxaCartaoPctPDV : null,
-    taxa_cartao_valor: _taxaCartaoValorPDV,
-    taxa_servico_percentual:
-      _taxaServicoValorPDV > 0 ? _taxaServicoPctPDV : null,
-    taxa_servico_valor: _taxaServicoValorPDV,
-    itens: novosItens,
-    endereco_entrega: enderecoPDV,
-    cliente_nome: nomeFinal,
-    cliente_telefone: tel,
-    obs_pagamento: obsPagPDV,
-    garcom_id: _perfilId || null,
-    garcom_nome: _perfilNome || null,
-    ...(tipoEntregaPDV === "delivery" && _geoLat && _geoLng
-      ? { geo_lat: _geoLat, geo_lng: _geoLng }
-      : {}),
-    tempo_recebido: _agora,
-    tempo_confirmado: _agora,
-    tempo_preparo_iniciado: _agora,
-    dados_factura: dadosFactura,
+    status: _soKg ? "entregue" : _todosSemCozinha(carrinhoPDV) ? "pronto_entrega" : "em_preparo",
+    tipo_entrega: tipoEntregaPDV, subtotal: subtotalBruto, desconto_pdv_valor: descontoAplicado, desconto_pdv_tipo: descontoAplicado > 0 ? descTipo : null,
+    frete_cobrado_cliente: fretePDV, total_geral: totalNovo,
+    forma_pagamento: pagFinalPDV, taxa_cartao_percentual: _taxaCartaoValorPDV > 0 ? _taxaCartaoPctPDV : null, taxa_cartao_valor: _taxaCartaoValorPDV,
+    taxa_servico_percentual: _taxaServicoValorPDV > 0 ? _taxaServicoPctPDV : null, taxa_servico_valor: _taxaServicoValorPDV,
+    itens: novosItens, endereco_entrega: enderecoPDV, cliente_nome: nomeFinal, cliente_telefone: tel, obs_pagamento: obsPagPDV,
+    garcom_id: _perfilId || null, garcom_nome: _perfilNome || null,
+    ...(tipoEntregaPDV === "delivery" && _geoLat && _geoLng ? { geo_lat: _geoLat, geo_lng: _geoLng } : {}),
+    tempo_recebido: _agora, tempo_confirmado: _agora, tempo_preparo_iniciado: _agora, dados_factura: dadosFactura,
     ...(_soKg ? { tempo_pronto: _agora, tempo_entregue: _agora } : {}),
   };
 
-  const { data: novoPedido, error } = await supa
-    .from("pedidos")
-    .insert([pedido])
-    .select("id, uid_temporal")
-    .single();
-  if (error) {
-    alert("Error: " + error.message);
-    return;
-  }
+  const { data: novoPedido, error } = await supa.from("pedidos").insert([pedido]).select("id, uid_temporal").single();
+  if (error) return alert("Error: " + error.message);
+
   if (novoPedido?.id) await _descontarEstoqueVenda(novoPedido.id, novosItens);
 
   if (pag === "Mensalista" && _pdvMensalistaSel) {
     const pm = _pdvMensalistaSel;
-    const debito = _mensSplitInfo
-      ? _mensSplitInfo.saldoDebitar
-      : subtotalLiquido;
+    const debito = _mensSplitInfo ? _mensSplitInfo.saldoDebitar : subtotalLiquido;
     const novoSaldo = Math.round(Number(pm.valor_restante || 0) - debito);
-
-    await supa
-      .from("planos_mensalistas")
-      .update({ valor_restante: novoSaldo })
-      .eq("id", pm.id);
-
-    const obsHist = _mensSplitInfo
-      ? `PDV #${novoPedido?.id || "?"} — debitado Gs ${debito.toLocaleString("es-PY")} (resto Gs ${_mensSplitInfo.valorComplemento.toLocaleString("es-PY")} em ${_mensSplitInfo.complemento})`
-      : `PDV #${novoPedido?.id || "?"} — débito total`;
-
-    await supa.from("mensalista_entregas").insert([
-      {
-        plano_id: pm.id,
-        cliente_id: pm.clientes?.id || null,
-        produto_nome: pm.produto_nome,
-        quantidade: 0,
-        observacoes: obsHist,
-        valor_descontado: debito,
-      },
-    ]);
-
-    _pdvMensalistaSel.valor_restante = novoSaldo;
-    _mensSplitInfo = null;
-    _pdvPularMovimentacao = false;
+    await supa.from("planos_mensalistas").update({ valor_restante: novoSaldo }).eq("id", pm.id);
+    await supa.from("mensalista_entregas").insert([{ plano_id: pm.id, cliente_id: pm.clientes?.id || null, produto_nome: pm.produto_nome, quantidade: 0, observacoes: `PDV #${novoPedido?.id}`, valor_descontado: debito }]);
+    _pdvMensalistaSel.valor_restante = novoSaldo; _mensSplitInfo = null;
   }
 
   if (pag === "NaNota" && _pdvClienteNotaSel) {
-    await supa
-      .from("pedidos")
-      .update({ cliente_telefone: _pdvClienteNotaSel.telefone || "" })
-      .eq("id", novoPedido.id);
-    _pdvPularMovimentacao = true;
+    await supa.from("pedidos").update({ cliente_telefone: _pdvClienteNotaSel.telefone || "" }).eq("id", novoPedido.id);
   }
 
-  if (_gavetaDeveAbrir(pag, obsPagPDV)) {
-    _abrirGavetaDC335(
-      `venda #${novoPedido?.uid_temporal ?? novoPedido?.id ?? "PDV"} — ${pag}`,
-    );
-  }
+  if (_gavetaDeveAbrir(pag, obsPagPDV)) _abrirGavetaDC335(`venda #${novoPedido?.uid_temporal ?? novoPedido?.id ?? "PDV"}`);
 
   if (_pdvCashbackUsando && tel) {
     const descCash = pdvGetCashbackDesconto(totalNovo);
     if (descCash > 0) await crmUsarCashback(tel, descCash);
-    _pdvCashbackUsando = false;
-    _pdvCashbackDisponivel = 0;
+    _pdvCashbackUsando = false; _pdvCashbackDisponivel = 0;
     document.getElementById("pdv-cashback-box").style.display = "none";
   }
 
@@ -14144,132 +13575,54 @@ async function salvarPedidoBalcao() {
 
   if (novoPedido?.id) {
     const itensParaImpressao = [...novosItens];
-    if (_taxaServicoValorPDV > 0) {
-      itensParaImpressao.push({
-        nome: `Taxa de Serviço (${_taxaServicoPctPDV}%)`,
-        preco: _taxaServicoValorPDV,
-        qtd: 1,
-      });
-    }
-    if (_taxaCartaoValorPDV > 0) {
-      itensParaImpressao.push({
-        nome: `Taxa de Cartão (${_taxaCartaoPctPDV}%)`,
-        preco: _taxaCartaoValorPDV,
-        qtd: 1,
-      });
-    }
+    if (_taxaServicoValorPDV > 0) itensParaImpressao.push({ nome: `Taxa de Serviço (${_taxaServicoPctPDV}%)`, preco: _taxaServicoValorPDV, qtd: 1 });
+    if (_taxaCartaoValorPDV > 0) itensParaImpressao.push({ nome: `Taxa de Cartão (${_taxaCartaoPctPDV}%)`, preco: _taxaCartaoValorPDV, qtd: 1 });
+    
     const dadosImpressao = {
-      id: novoPedido.uid_temporal || novoPedido.id,
-      cliente: { nome: nomeFinal, tel: tel },
-      entrega: { tipo: tipoEntregaPDV, ref: pedido.endereco_entrega },
-      itens: itensParaImpressao.map((i) => ({
-        q: i.qtd || 1,
-        n: i.nome,
-        p: i.preco,
-        t: i.variacao || "",
-        pr: i.preparo || "",
-        m: i.montagem || [],
-        o: i.obs || "",
-        peso_gramas: i.peso_gramas,
-        _isKg: i._isKg,
-      })),
-      valores: {
-        sub: subtotalBruto,
-        desconto: descontoAplicado,
-        frete: fretePDV,
-        taxa_servico: _taxaServicoValorPDV,
-        taxa_cartao: _taxaCartaoValorPDV,
-        total: totalNovo,
-      },
-      pagamento: { metodo: pagFinalPDV, obs: obsPagPDV },
-      data: new Date().toLocaleString("pt-BR"),
+      id: novoPedido.uid_temporal || novoPedido.id, cliente: { nome: nomeFinal, tel: tel }, entrega: { tipo: tipoEntregaPDV, ref: pedido.endereco_entrega },
+      itens: itensParaImpressao.map((i) => ({ q: i.qtd || 1, n: i.nome, p: i.preco, t: i.variacao || "", pr: i.preparo || "", m: i.montagem || [], o: i.obs || "", peso_gramas: i.peso_gramas, _isKg: i._isKg })),
+      valores: { sub: subtotalBruto, desconto: descontoAplicado, frete: fretePDV, taxa_servico: _taxaServicoValorPDV, taxa_cartao: _taxaCartaoValorPDV, total: totalNovo },
+      pagamento: { metodo: pagFinalPDV, obs: obsPagPDV }, data: new Date().toLocaleString("pt-BR"),
     };
-    const base64 = btoa(
-      unescape(encodeURIComponent(JSON.stringify(dadosImpressao))),
-    )
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-    window.open(
-      `imprimir.html?d=${base64}`,
-      `PrintPDV_${novoPedido.id}_${Date.now()}`,
-      "width=400,height=600",
-    );
+    
+    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(dadosImpressao)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    window.open(`imprimir.html?d=${base64}`, `PrintPDV_${novoPedido.id}_${Date.now()}`, "width=400,height=600");
   }
 
   carrinhoPDV = [];
   document.getElementById("balcao-cliente").value = "";
   document.getElementById("balcao-mesa").value = "";
-  window._pdvTaxaCartaoValor = 0;
-  window._pdvTaxaCartaoPct = 0;
-  window._pdvTaxaServicoValor = 0;
-  window._pdvTaxaServicoPct = 0;
-  {
-    const _chkTS = document.getElementById("pdv-check-taxa-servico");
-    if (_chkTS) _chkTS.checked = false;
-  }
-  {
-    const _pctTS = document.getElementById("pdv-taxa-servico-pct");
-    if (_pctTS) _pctTS.style.display = "none";
-  }
+  window._pdvTaxaCartaoValor = 0; window._pdvTaxaCartaoPct = 0; window._pdvTaxaServicoValor = 0; window._pdvTaxaServicoPct = 0;
+  { const _chkTS = document.getElementById("pdv-check-taxa-servico"); if (_chkTS) _chkTS.checked = false; }
+  { const _pctTS = document.getElementById("pdv-taxa-servico-pct"); if (_pctTS) _pctTS.style.display = "none"; }
   document.getElementById("balcao-telefone").value = "";
-
-  const tipoSelPDV = document.getElementById("balcao-tipo-entrega");
-  if (tipoSelPDV) tipoSelPDV.value = "balcao";
-  document.querySelectorAll(".pdv-tipo-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tipo === "balcao");
-  });
-  const endPDV = document.getElementById("balcao-endereco");
-  if (endPDV) endPDV.value = "";
-  const geoPDVLat = document.getElementById("balcao-geo-lat");
-  if (geoPDVLat) geoPDVLat.value = "";
-  const geoPDVLng = document.getElementById("balcao-geo-lng");
-  if (geoPDVLng) geoPDVLng.value = "";
-  const fretePDVInput = document.getElementById("balcao-frete");
-  if (fretePDVInput) fretePDVInput.value = "";
-  const freteMsgPDV = document.getElementById("frete-msg-pdv");
-  if (freteMsgPDV) freteMsgPDV.innerHTML = "";
-  const deliveryRowPDV = document.getElementById("pdv-delivery-row");
-  if (deliveryRowPDV) deliveryRowPDV.style.display = "none";
-  const descValEl = document.getElementById("pdv-desconto-val");
-  if (descValEl) descValEl.value = "";
-  const descTipoEl = document.getElementById("pdv-desconto-tipo");
-  if (descTipoEl) descTipoEl.value = "fixo";
-  const multiPartesPDV = document.getElementById("multi-partes-pdv");
-  if (multiPartesPDV) multiPartesPDV.innerHTML = "";
+  { const _tipoSel = document.getElementById("balcao-tipo-entrega"); if (_tipoSel) _tipoSel.value = "balcao"; }
+  document.querySelectorAll(".pdv-tipo-tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.tipo === "balcao"));
+  
+  const _descValEl = document.getElementById("pdv-desconto-val"); if (_descValEl) _descValEl.value = "";
+  const _descTipoEl = document.getElementById("pdv-desconto-tipo"); if (_descTipoEl) _descTipoEl.value = "fixo";
+  const _multiPartesPDV = document.getElementById("multi-partes-pdv"); if (_multiPartesPDV) _multiPartesPDV.innerHTML = "";
+  
   _multiContadorPDV = 0;
   document.getElementById("balcao-pag").value = "Efetivo";
   document.getElementById("balcao-pag").style.display = "";
-  const boxMultiPDV = document.getElementById("box-multi-pdv");
-  if (boxMultiPDV) boxMultiPDV.style.display = "none";
+  const _boxMulti = document.getElementById("box-multi-pdv"); if (_boxMulti) _boxMulti.style.display = "none";
+  
   _pdvMensalistaSel = null;
-  _pdvPularMovimentacao = false;
-  const boxMensPDV = document.getElementById("box-mensalista-pdv");
-  if (boxMensPDV) boxMensPDV.style.display = "none";
-  const mensSel = document.getElementById("pdv-mens-selecionado");
-  if (mensSel) mensSel.style.display = "none";
+  const _boxMens = document.getElementById("box-mensalista-pdv"); if (_boxMens) _boxMens.style.display = "none";
+  const _mensSel = document.getElementById("pdv-mens-selecionado"); if (_mensSel) _mensSel.style.display = "none";
+  
   _pdvClienteNotaSel = null;
-  const boxNotaPDV = document.getElementById("box-nanota-pdv");
-  if (boxNotaPDV) boxNotaPDV.style.display = "none";
-  const notaSel = document.getElementById("pdv-nota-selecionado");
-  if (notaSel) notaSel.style.display = "none";
-  const _recEl = document.getElementById("pdv-valor-recebido");
-  const _trEl = document.getElementById("pdv-troco-row");
-  const _efEl = document.getElementById("pdv-efetivo-box");
-  if (_recEl) _recEl.value = "";
-  if (_trEl) _trEl.style.display = "none";
-  if (_efEl) _efEl.style.display = "none";
-  atualizarCarrinhoPDV();
-  atualizarBarraMesasAtivas();
-  carregarMonitorMesas();
-  atualizarTextoBotaoPDV();
+  const _boxNota = document.getElementById("box-nanota-pdv"); if (_boxNota) _boxNota.style.display = "none";
+  const _notaSel = document.getElementById("pdv-nota-selecionado"); if (_notaSel) _notaSel.style.display = "none";
+  
+  const _recEl = document.getElementById("pdv-valor-recebido"); const _trEl = document.getElementById("pdv-troco-row"); const _efEl = document.getElementById("pdv-efetivo-box");
+  if (_recEl) _recEl.value = ""; if (_trEl) _trEl.style.display = "none"; if (_efEl) _efEl.style.display = "none";
+  
+  atualizarCarrinhoPDV(); atualizarBarraMesasAtivas(); carregarMonitorMesas(); atualizarTextoBotaoPDV();
+  fecharModal('modal-pagamento-pdv');
 
-  const _msgFinal = _soKg
-    ? "✅ Venda registrada!"
-    : _todosBebidas(novosItens)
-      ? "✅ Só bebidas — direto ao balcão."
-      : "✅ Enviado para a Cozinha!";
-  _pdvToast(_msgFinal);
+  _pdvToast(_soKg ? "✅ Venda registrada!" : _todosBebidas(novosItens) ? "✅ Só bebidas — direto ao balcão." : "✅ Enviado para a Cozinha!");
 }
 
 // ── Imprime para a cozinha apenas os itens novos de uma mesa ──────────
@@ -18567,4 +17920,16 @@ function atualizarTextoBotaoPDV() {
     if (btnLancar) btnLancar.style.background = "";
     if (btnFinalizarMesa) btnFinalizarMesa.style.display = "none";
   }
+}
+
+function abrirModalPagamentoPDV() {
+  if (carrinhoPDV.length === 0 && !window._mesaAbertaId) {
+    return alert("Adicione itens ao pedido primeiro.");
+  }
+
+  // Atualiza o total no modal antes de abrir
+  atualizarCarrinhoPDV();
+  
+  // Abre o modal
+  document.getElementById('modal-pagamento-pdv').style.display = 'flex';
 }

@@ -5499,3 +5499,4 @@ setInterval(salvarCarrinhoLocal, 5000); // A cada 5 segundos
 setTimeout(restaurarCarrinhoBackup, 1000);
 
 // ==========================================
+

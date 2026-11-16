@@ -606,10 +606,10 @@ select.form-control, select.input-modern {
 ═══════════════════════════════════════════════════════════ */
 .pdv-layout {
     display: grid;
-    grid-template-columns: 1fr 330px;
-    height: 100vh;
+    grid-template-columns: 1fr 360px;
+    height: calc(100vh - 110px); /* Desconta a altura do header. Ajuste se necessário. */
+    overflow: hidden; /* Impede scroll na tela inteira */
     border-radius: 10px;
-    overflow: hidden;
     border: 1px solid #ccc;
     gap: 1px;
     background: #ccc;
@@ -791,11 +791,11 @@ select.form-control, select.input-modern {
 
 /* ── Right column: Order ────────────────────────────────── */
 .pdv-col-dir {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: #fff;
-  height: 100%;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: #fff;
 }
 .pdv-dir-titulo {
     padding: 9px 10px 7px;
@@ -804,30 +804,44 @@ select.form-control, select.input-modern {
 }
 
 /* Order type tabs */
-.pdv-tipo-tabs { display: flex; border-bottom: 2px solid #ddd; flex-shrink: 0; }
+.pdv-tipo-tabs {
+    display: flex;
+    background: #fff;
+    border-bottom: 2px solid #e2e8f0;
+}
 .pdv-tipo-tab {
-    flex: 1; padding: 7px 2px;
-    border: none; background: #f5f5f5;
-    font-size: 0.67rem; font-weight: 700; color: #666;
-    cursor: pointer; border-right: 1px solid #ddd;
-    transition: background 0.1s; white-space: nowrap; text-align: center;
+    flex: 1;
+    padding: 10px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: #64748b;
+    transition: all 0.2s;
 }
 .pdv-tipo-tab:last-child { border-right: none; }
 .pdv-tipo-tab:hover { background: #e8e8e8; }
-.pdv-tipo-tab.active { background: var(--primary); color: #fff; }
+.pdv-tipo-tab.active {
+    color: #fff;
+    background: #1a7a2e;
+}
 
 /* Discount */
 .pdv-dir-desconto {
-    padding: 6px 8px;
-    background: #fffbf0; border-bottom: 1px solid #ffe082;
-    flex-shrink: 0;
+    padding: 10px 12px;
+    background: #fffbf0;
+    border-top: 1px solid #ffe082;
 }
+
 .pdv-dir-desc-label { font-size: 0.67rem; font-weight: 800; color: #7d5a00; letter-spacing: 0.5px; margin-bottom: 3px; }
 
 /* Client data */
 .pdv-dir-dados {
-    padding: 6px 8px; border-bottom: 1px solid #f0f0f0;
-    display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 .pdv-dado-row { display: flex; gap: 6px; }
 .pdv-dir-label { display: block; font-size: 0.67rem; font-weight: 700; color: #666; margin-bottom: 2px; }
@@ -838,8 +852,42 @@ select.form-control, select.input-modern {
 }
 .pdv-dir-input:focus { border-color: var(--primary); }
 
+.pdv-dir-topo-fixo,
+.pdv-dir-pagamento-fixo,
+.pdv-dir-footer {
+    flex-shrink: 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+
 /* Item table — lista de itens com flex:1 para ocupar espaço disponível */
-.pdv-dir-lista-wrap { flex: 1; overflow-y: auto; scrollbar-width: thin; min-height: 60px; }
+.pdv-dir-topo-fixo {
+    flex-shrink: 0;
+    border-bottom: 1px solid #e2e8f0;
+    max-height: 55%; /* Impede que o topo coma a tela inteira */
+    overflow-y: auto;
+}
+.pdv-dir-pagamento-fixo {
+    flex-shrink: 0;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    max-height: 45vh; /* Se a tela for muito baixa, ele rola sozinho, mas sem esmagar */
+    overflow-y: auto;
+}
+.pdv-dir-lista-wrap {
+    flex: 1;
+    overflow-y: auto;
+    background: #fff;
+    min-height: 120px; /* OBRIGATÓRIO: Garante que a lista NUNCA suma */
+}
+.pdv-dir-totais-rodape {
+    flex-shrink: 0;
+    background: #f8fafc;
+    padding: 12px;
+    border-top: 2px solid #e2e8f0;
+    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+    z-index: 10;
+}
 .pdv-dir-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
 .pdv-dir-table thead th {
     padding: 4px 5px; text-align: left;
@@ -878,29 +926,36 @@ select.form-control, select.input-modern {
 
 /* Totals */
 .pdv-dir-totais {
-    padding: 5px 8px; border-top: 2px solid #e0e0e0;
-    flex-shrink: 0; background: #fafafa;
+    padding: 12px;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
 }
 .pdv-dir-total-row { display: flex; justify-content: space-between; font-size: 0.76rem; color: #666; padding: 1px 0; }
 .pdv-dir-valor-total {
-    display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 0.8rem; font-weight: 700; color: #333;
-    padding-top: 4px; margin-top: 3px; border-top: 1px dashed #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.9rem;
+    font-weight: 700;
 }
-.pdv-dir-valor-total strong { font-size: 1.4rem; font-weight: 900; color: #111; }
+.pdv-dir-valor-total strong {
+    font-size: 1.5rem;
+    color: #1a7a2e;
+}
+
+/* Área de pagamento (Select, troco, etc) */
+.pdv-dir-formas-pag {
+    padding: 12px;
+    background: #f8fafc;
+}
 
 /* Action buttons */
 .pdv-dir-footer {
-  position: sticky;
-  bottom: 0;
-  background: #fff;
-  z-index: 10;
-  padding: 8px 12px;
-  border-top: 1px solid #e0e0e0;
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-  box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.05);
+    padding: 10px 12px;
+    border-top: 2px solid #e2e8f0;
+    background: #f8fafc;
+    display: flex;
+    gap: 8px;
 }
 .pdv-btn-cancelar {
     padding: 9px 10px; background: #ffeaea; color: #c0392b;
@@ -957,11 +1012,16 @@ select.form-control, select.input-modern {
 
     /* On mobile: single-column, tabs switch panels */
     .pdv-layout {
-        grid-template-columns: 1fr;
-        height: calc(100vh - 200px);
-        background: #fff;
-        border: none;
-        border-radius: 0;
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    /* Ajustado para 160px para acomodar o cabeçalho do sistema sem estourar */
+    height: calc(100vh - 160px); 
+    min-height: 500px;
+    overflow: hidden; 
+    border-radius: 10px;
+    border: 1px solid #ccc;
+    gap: 1px;
+    background: #ccc;
     }
 
     /* Each panel hides/shows based on active tab */
