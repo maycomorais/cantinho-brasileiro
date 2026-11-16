@@ -8291,14 +8291,22 @@ function editarCategoria(c) {
 
   const slugInput = document.getElementById("cat-slug");
   slugInput.value = c.slug;
-  slugInput.readOnly = false; // Permite editar o slug
-  slugInput.dataset.slugOriginal = c.slug; // Guarda o original para comparar
+  slugInput.readOnly = false;
+  slugInput.dataset.slugOriginal = c.slug;
 
   document.getElementById("cat-nome").value = c.nome_exibicao;
   document.getElementById("cat-ordem").value = c.ordem;
-  document.getElementById("cat-hora-inicio").value = c.hora_inicio || "";
-  document.getElementById("cat-hora-fim").value = c.hora_fim || "";
-  const diasSalvos = Array.isArray(c.dias_semana) ? c.dias_semana : [];
+  
+  // CORREÇÃO: Corta os segundos ("11:00:00" -> "11:00") para o HTML aceitar
+  document.getElementById("cat-hora-inicio").value = c.hora_inicio ? String(c.hora_inicio).substring(0, 5) : "";
+  document.getElementById("cat-hora-fim").value = c.hora_fim ? String(c.hora_fim).substring(0, 5) : "";
+  
+  // CORREÇÃO: Força os dias a serem números para bater com o DIA_SEMANA_MAP
+  let diasSalvos = [];
+  if (Array.isArray(c.dias_semana)) {
+    diasSalvos = c.dias_semana.map(Number);
+  }
+  
   document.querySelectorAll(".cat-dia-check").forEach((cb) => {
     cb.checked = diasSalvos.includes(DIA_SEMANA_MAP[cb.value]);
   });

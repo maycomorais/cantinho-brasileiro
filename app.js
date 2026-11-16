@@ -914,17 +914,22 @@ async function renderMenu() {
   const minAgora = agora.getHours() * 60 + agora.getMinutes();
 
   function categoriaVisivel(cat) {
-    // Filtro por dia da semana (0=Dom...6=Sáb, igual ao Date.getDay())
-    if (Array.isArray(cat.dias_semana) && cat.dias_semana.length > 0) {
-      if (!cat.dias_semana.includes(agora.getDay())) return false;
-    }
-    if (!cat.hora_inicio || !cat.hora_fim) return true;
-    const [hI, mI] = cat.hora_inicio.split(":").map(Number);
-    const [hF, mF] = cat.hora_fim.split(":").map(Number);
-    const inicio = hI * 60 + mI;
-    const fim = hF * 60 + mF;
-    if (fim < inicio) return minAgora >= inicio || minAgora <= fim;
-    return minAgora >= inicio && minAgora <= fim;
+  // Filtro por dia da semana (0=Dom...6=Sáb, igual ao Date.getDay())
+  if (Array.isArray(cat.dias_semana) && cat.dias_semana.length > 0) {
+    // Converte tudo para número para garantir que a comparação funcione
+    const diasInt = cat.dias_semana.map(Number);
+    if (!diasInt.includes(agora.getDay())) return false;
+  }
+  
+  if (!cat.hora_inicio || !cat.hora_fim) return true;
+  
+  const [hI, mI] = cat.hora_inicio.split(":").map(Number);
+  const [hF, mF] = cat.hora_fim.split(":").map(Number);
+  const inicio = hI * 60 + mI;
+  const fim = hF * 60 + mF;
+  
+  if (fim < inicio) return minAgora >= inicio || minAgora <= fim;
+  return minAgora >= inicio && minAgora <= fim;
   }
 
   function renderProdutoDiv(item) {
@@ -4401,9 +4406,23 @@ function _menuContemProduto(item) {
       (item.produto_id && p.id === item.produto_id) ||
       (p.nome || "").toLowerCase() === (item.nome || "").toLowerCase()
     );
-    if (found) return true;
+    
+    if (found) {
+      // Verifica se a variação (ex: Coca-Cola Zero) ainda existe e está ativa
+      let cfg = found.montagem;
+      if (typeof cfg === "string") {
+        try { cfg = JSON.parse(cfg); } catch (_) { cfg = null; }
+      }
+      
+      if (item.variacao && cfg && cfg.__tipo === "variacoes" && Array.isArray(cfg.variacoes)) {
+        const vAtiva = cfg.variacoes.find(v => v.nome === item.variacao && v.ativo !== false);
+        if (!vAtiva) return false; // A variação foi pausada/deletada
+      }
+      
+      return true; // Produto e variação válidos
+    }
   }
-  return false;
+  return false; // Produto não existe mais no menu ou está pausado/sem estoque
 }
 
 // Chamada APÓS renderMenu() para enriquecer o box com disponibilidade real
@@ -4490,13 +4509,23 @@ function repetirPedido() {
   })();
   if (!last || !Array.isArray(last) || last.length === 0) return;
 
+  // Filtra apenas o que ainda está no menu e disponível
   const disponiveis   = last.filter(i => _menuContemProduto(i));
   const indisponiveis = last.length - disponiveis.length;
 
   if (disponiveis.length === 0) {
-    mostrarToast(tt({es:"Ningún ítem del pedido anterior está disponible en el menú actual.",pt:"Nenhum item do pedido anterior está disponível no menu atual.",en:"No items from the previous order are available in the current menu.",de:"Keine Artikel der vorherigen Bestellung sind im aktuellen Menü verfügbar."}), "warning", 4000);
+    mostrarToast(
+      tt({
+        es: "Ningún ítem del pedido anterior está disponible en el menú actual.",
+        pt: "Nenhum item do pedido anterior está disponível no menu atual.",
+        en: "No items from the previous order are available in the current menu.",
+        de: "Keine Artikel der vorherigen Bestellung sind im aktuellen Menü verfügbar."
+      }),
+      "warning", 4000
+    );
     return;
   }
+
   if (indisponiveis > 0) {
     mostrarToast(
       tt({
