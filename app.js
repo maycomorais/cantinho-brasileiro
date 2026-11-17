@@ -398,6 +398,9 @@ async function verificarHorario() {
     TABELA_FRETE = data.tabela_frete;
   if (data.limite_distancia_km != null)
     LIMITE_DISTANCIA_KM = parseFloat(data.limite_distancia_km) || null;
+
+   window.ZONAS_ESPECIAIS = Array.isArray(data.zonas_especiais) ? data.zonas_especiais : [];
+   
   // Aplica visibilidade das formas de pagamento conforme configuração
   FEATURES_PAGAMENTOS_CLIENTE = data.features_ativas?.pagamentos || null;
   _aplicarFormasPagamentoCliente(data.features_ativas);
@@ -3669,6 +3672,24 @@ function _executarGetPosition(btn, msg, boxErro) {
         localCliente.lng,
       );
 
+      // ── VERIFICAÇÃO DE ZONAS ESPECIAIS (Prioridade Máxima) ─────────────
+      const zona = (window.ZONAS_ESPECIAIS || []).find((z) => {
+        const distZona = calcularDistancia(z.lat, z.lng, localCliente.lat, localCliente.lng);
+        return distZona <= z.raio_km;
+      });
+
+      if (zona) {
+        freteCalculado = Number(zona.valor_cliente);
+        freteMotoboy = Number(zona.valor_motoboy);
+        msg.innerHTML = `<span style="color:#27ae60">✅ Zona Especial: ${zona.nome} → Env: Gs ${zona.valor_cliente.toLocaleString("es-PY")}</span>`;
+        msg.style.color = "#27ae60";
+        boxErro.style.display = "none";
+        btn.innerText = _gL.localizacaoOk;
+        btn.disabled = true;
+        atualizarTotalCheckout();
+        return; // Encerra aqui, não processa a tabela normal
+      }
+
       // === TABELA DE FRETE DINÂMICA (configurada no admin) ===
       // ATENÇÃO: deve ser IDÊNTICO ao index.ts (Edge Function) e admin.js calcularFretePDV
       // Faixas: [0-1], [1.1-2], ..., [19.1-20], >20 = a combinar
@@ -3731,9 +3752,7 @@ function _executarGetPosition(btn, msg, boxErro) {
       atualizarTotalCheckout();
     },
     (err) => {
-      // ⚠️ CORRIGIDO: antes disso só mostrava "marque a opção pra combinar
-      // pelo WhatsApp" e travava o pedido até o cliente fazer isso
-      // manualmente. Agora aplica automaticamente o frete mínimo da
+      // ⚠️ CORRIGIDO: aplica automaticamente o frete mínimo da
       // tabela (faixa de 0-1km) e deixa claro que pode aumentar depois.
       const freteMinimo = _obterFreteMinimoDaTabela();
       freteCalculado = freteMinimo;

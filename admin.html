@@ -1563,6 +1563,55 @@
           </button>
         </div>
 
+                <!-- ── ZONAS ESPECIAIS DE ENTREGA ─────────────────────── -->
+        <div class="card cfg-card" style="margin-top:16px">
+          <div class="cfg-section-title">
+            <i class="fas fa-map-marked-alt"></i> Zonas de Entrega Especiais
+            <small style="font-weight:400;color:#888;font-size:0.82rem;display:block;margin-top:4px">
+              Crie zonas (ex: Centro, Bairro X) com um raio e um valor fixo. Elas ignoram a tabela por km.
+            </small>
+          </div>
+          
+          <div id="zonas-especiais-lista" style="margin-bottom:12px"></div>
+          
+          <div style="background:#f8fafc;border:1.5px dashed #cbd5e1;border-radius:10px;padding:14px">
+            <div style="font-weight:700;font-size:0.88rem;margin-bottom:10px;color:#334155">➕ Adicionar Nova Zona</div>
+            <div class="cfg-grid">
+              <div class="form-group">
+                <label>Nome da Zona</label>
+                <input type="text" id="zona-nome" class="form-control" placeholder="Ex: Zona Centro">
+              </div>
+              <div class="form-group">
+                <label>Link do Google Maps (Opcional)</label>
+                <input type="text" id="zona-link" class="form-control" placeholder="Cole o link do Maps aqui" oninput="_extrairCoordsZona(this.value)">
+              </div>
+              <div class="form-group">
+                <label>Latitude</label>
+                <input type="number" id="zona-lat" class="form-control" step="0.000001">
+              </div>
+              <div class="form-group">
+                <label>Longitude</label>
+                <input type="number" id="zona-lng" class="form-control" step="0.000001">
+              </div>
+              <div class="form-group">
+                <label>Raio (km)</label>
+                <input type="number" id="zona-raio" class="form-control" value="2" min="0.1" step="0.1">
+              </div>
+              <div class="form-group">
+                <label>Valor Cliente (Gs)</label>
+                <input type="number" id="zona-valor-cliente" class="form-control" value="5000" min="0" step="500">
+              </div>
+              <div class="form-group">
+                <label>Repasse Motoboy (Gs)</label>
+                <input type="number" id="zona-valor-motoboy" class="form-control" value="5000" min="0" step="500">
+              </div>
+            </div>
+            <button class="btn btn-success" onclick="adicionarZonaEspecial()" style="margin-top:10px;width:100%">
+              <i class="fas fa-plus"></i> Adicionar Zona
+            </button>
+          </div>
+        </div>
+
         <!-- ── TAXA DE CARTÃO (repassada ao cliente: CartaoBR e Cartao) ── -->
         <div class="card cfg-card" style="margin-top:16px">
           <div class="cfg-section-title"><i class="fas fa-percent"></i> <span data-i18n="cfg.taxacartao_titulo">Tasa de Tarjeta (repasada al cliente)</span>

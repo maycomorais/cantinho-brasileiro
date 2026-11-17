@@ -1980,23 +1980,28 @@ async function _obterHoraServidor() {
     return _horaServidorCache;
   }
   try {
-    const supaUrl =
-      window._SUPABASE_URL ||
-      (typeof _SUPABASE_URL !== "undefined" ? _SUPABASE_URL : "");
-    if (!supaUrl) throw new Error("Supabase URL indisponível");
-    const fnUrl =
-      supaUrl.replace("/rest/v1", "").replace(/\/+$/, "") +
-      "/functions/v1/server-time";
-    const resp = await fetch(fnUrl, { method: "GET" });
+    const supaUrl = window._SUPABASE_URL || (typeof _SUPABASE_URL !== "undefined" ? _SUPABASE_URL : "");
+    const supaKey = window._SUPABASE_KEY || (typeof _SUPABASE_KEY !== "undefined" ? _SUPABASE_KEY : "");
+    
+    if (!supaUrl || !supaKey) throw new Error("Supabase URL ou Key indisponível");
+    
+    const fnUrl = supaUrl.replace("/rest/v1", "").replace(/\/+$/, "") + "/functions/v1/server-time";
+    
+    // CORREÇÃO: Enviando a apikey no header da requisição
+    const resp = await fetch(fnUrl, { 
+      method: "GET",
+      headers: {
+        "apikey": supaKey,
+        "Authorization": `Bearer ${supaKey}`
+      }
+    });
+    
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
     _horaServidorCache = { ...data, buscadoEm: AGORA_MS };
     return _horaServidorCache;
   } catch (e) {
-    console.warn(
-      "⚠️ Falla al obtener hora del servidor, usando fallback local:",
-      e.message,
-    );
+    console.warn("⚠️ Falla al obtener hora del servidor, usando fallback local:", e.message);
     const now = new Date();
     const nowPy = new Date(now.getTime() - 3 * 60 * 60 * 1000);
     const fallback = {
@@ -9164,6 +9169,7 @@ async function carregarConfiguracoes() {
 
   await carregarExtrasGlobaisAdmin();
   await _carregarMaquininhas();
+  await carregarZonasEspeciais();
 
   // Limite de distância e maquininhas
   s("cfg-limite-distancia", data.limite_distancia_km ?? "");
@@ -10597,6 +10603,7 @@ async function carregarPDV() {
   pdvIniciarTabs();
   // Carrega mini-painel de caixa no PDV (funciona mesmo com aba financeiro bloqueada)
   await pdvCarregarPainelCaixa();
+  await carregarZonasEspeciais(); 
 }
 
 /**
@@ -16576,16 +16583,31 @@ async function obterDistanciaPelaRota(latDestino, lngDestino) {
 // ── Helper: extrai lat/lng de um link do Google Maps ─────────────────
 function _extrairCoordsGmaps(linkStr) {
   if (!linkStr) return { lat: null, lng: null };
+
+  // 1. PRIORIDADE MÁXIMA: Pino exato do local (!3d e !4d)
+  // Isso resolve o problema de o link ter a visão do mapa (@) diferente do pino.
+  const matchPlace = linkStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (matchPlace) {
+    return { lat: parseFloat(matchPlace[1]), lng: parseFloat(matchPlace[2]) };
+  }
+
+  // 2. SEGUNDA OPÇÃO: Centro do mapa (@) - Usado se não tiver o pino exato
+  const matchAt = linkStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (matchAt) {
+    return { lat: parseFloat(matchAt[1]), lng: parseFloat(matchAt[2]) };
+  }
+
+  // 3. FALLBACK: Links de busca comuns (query q=)
   const patterns = [
     /[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
-    /@(-?\d+\.?\d*),(-?\d+\.?\d*)/,
-    /\/place\/[^/@]*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/,
-    /maps\?.*ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /\/place\/[^/@]*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/
   ];
+  
   for (const rx of patterns) {
     const m = linkStr.match(rx);
     if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
   }
+
   return { lat: null, lng: null };
 }
 
@@ -16600,6 +16622,20 @@ function pdvOnGmapsLinkInput(val) {
   } else {
     btnAbrir.style.display = "none";
   }
+}
+
+function calcularDistancia(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Raio da Terra em km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
 async function calcularFretePDV() {
@@ -16620,7 +16656,6 @@ async function calcularFretePDV() {
     document.getElementById("balcao-endereco")?.value || ""
   ).trim();
 
-  // Prioridade: campo gmaps-link → campo endereço (pode conter link tb)
   let { lat, lng } = _extrairCoordsGmaps(gmapsLinkVal);
   if (lat === null) {
     const fromEnd = _extrairCoordsGmaps(endVal);
@@ -16628,11 +16663,9 @@ async function calcularFretePDV() {
     lng = fromEnd.lng;
   }
 
-  // ── Se não extraiu do link, usa GPS do dispositivo ────────────────────
   if (lat === null || lng === null) {
     if (!navigator.geolocation) {
-      msg.innerHTML =
-        '<span style="color:#e74c3c">Cole um link do Google Maps no campo acima ou use um celular com GPS</span>';
+      msg.innerHTML = '<span style="color:#e74c3c">Cole um link do Google Maps no campo acima ou use um celular com GPS</span>';
       btn.disabled = false;
       btn.innerHTML = "📍 Calcular";
       return;
@@ -16646,8 +16679,7 @@ async function calcularFretePDV() {
         }),
       );
     } catch {
-      msg.innerHTML =
-        '<span style="color:#e74c3c">Cole um link do Google Maps no campo acima, ou permita o GPS</span>';
+      msg.innerHTML = '<span style="color:#e74c3c">Cole um link do Google Maps no campo acima, ou permita o GPS</span>';
       btn.disabled = false;
       btn.innerHTML = "📍 Calcular";
       return;
@@ -16660,11 +16692,14 @@ async function calcularFretePDV() {
   document.getElementById("balcao-geo-lat").value = lat;
   document.getElementById("balcao-geo-lng").value = lng;
 
-  msg.innerHTML = '<span style="color:#888">⏳ Calculando rota...</span>';
+  msg.innerHTML = '<span style="color:#888">⏳ Calculando rota real...</span>';
+  
+  // ── TENTA CALCULAR A ROTA REAL PELA API OSRM ────────────────────────
   let dist = await obterDistanciaPelaRota(lat, lng);
   let usouRota = true;
+  
+  // Se a API OSRM falhar (sem internet ou limite atingido), faz fallback para linha reta
   if (dist === null) {
-    // Fallback linha reta
     const R = 6371,
       toRad = (x) => (x * Math.PI) / 180;
     const dLat = toRad(lat - COORD_LOJA.lat);
@@ -16678,8 +16713,27 @@ async function calcularFretePDV() {
     usouRota = false;
   }
 
-  // LIMITES_KM deve ser idêntico ao index.ts (Edge Function) para evitar
-  // divergência entre o frete calculado no front e o validado no servidor.
+  const nota = usouRota ? "🛣️ rota" : "📏 linha reta*";
+
+  // ── VERIFICAÇÃO DE ZONAS ESPECIAIS ───────────────────────────────────
+  // Para as Zonas Especiais, o correto é usar o raio (linha reta) em relação ao centro.
+  // Exemplo: A loja fica no meio do centro. Se o cliente está a 1km em linha reta, 
+  // ele entra na zona, independentemente de a rua dar voltas.
+  const zona = (_zonasEspeciaisCache || []).find((z) => {
+    const distZona = calcularDistancia(z.lat, z.lng, lat, lng); // Usa Haversine
+    return distZona <= z.raio_km;
+  });
+
+  if (zona) {
+    freteInput.value = zona.valor_cliente;
+    msg.innerHTML = `<span style="color:#27ae60">✅ ZONA ESPECIAL: ${zona.nome} (${dist.toFixed(1)}km ${nota}) → Gs ${zona.valor_cliente.toLocaleString("es-PY")}</span>`;
+    btn.disabled = false;
+    btn.innerHTML = "📍 Calcular";
+    atualizarCarrinhoPDV();
+    return;
+  }
+
+  // ── SE NÃO ESTIVER EM ZONA, SEGUE A TABELA NORMAL POR KM ─────────────
   const LIMITES_KM = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
   ];
@@ -16690,8 +16744,6 @@ async function calcularFretePDV() {
       break;
     }
   }
-
-  const nota = usouRota ? "🛣️ rota" : "📏 linha reta*";
 
   if (
     freteIndex === -1 ||
@@ -16717,8 +16769,11 @@ async function calcularFretePDV() {
   }
 
   freteInput.value = frete;
-  const aviso = usouRota ? "" : ' <em style="color:#e67e22">(estimativa)</em>';
+  const aviso = usouRota ? "" : ' <em style="color:#e67e22">(estimativa por falha na rota)</em>';
+  
+  // O motoboy e o operador agora vão ver claramente se foi calculado por rota ou linha reta.
   msg.innerHTML = `<span style="color:#27ae60">✅ ${dist.toFixed(1)}km ${nota} → Gs ${frete.toLocaleString("es-PY")}</span>${aviso}`;
+  
   btn.disabled = false;
   btn.innerHTML = "📍 Calcular";
   atualizarCarrinhoPDV();
@@ -17652,4 +17707,86 @@ function abrirModalPagamentoPDV() {
   
   // Abre o modal
   document.getElementById('modal-pagamento-pdv').style.display = 'flex';
+}
+
+// ==========================================
+// ZONAS ESPECIAIS DE ENTREGA
+// ==========================================
+let _zonasEspeciaisCache = [];
+
+async function carregarZonasEspeciais() {
+  const { data } = await supa.from("configuracoes").select("zonas_especiais").maybeSingle();
+  _zonasEspeciaisCache = data?.zonas_especiais || [];
+  renderizarZonasEspeciais();
+}
+
+function renderizarZonasEspeciais() {
+  const container = document.getElementById("zonas-especiais-lista");
+  if (!container) return;
+
+  if (_zonasEspeciaisCache.length === 0) {
+    container.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:0.85rem;padding:10px">Ninguna zona configurada.</div>';
+    return;
+  }
+
+  container.innerHTML = _zonasEspeciaisCache.map((z, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px;margin-bottom:8px">
+      <div>
+        <div style="font-weight:700;color:#166534">${z.nome}</div>
+        <div style="font-size:0.8rem;color:#15803d">
+          Raio: ${z.raio_km}km | Cliente: Gs ${z.valor_cliente.toLocaleString("es-PY")} | Motoboy: Gs ${z.valor_motoboy.toLocaleString("es-PY")}
+        </div>
+      </div>
+      <button onclick="removerZonaEspecial(${i})" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700">🗑️</button>
+    </div>
+  `).join("");
+}
+
+function _extrairCoordsZona(url) {
+  if (!url) return;
+  
+  // Reaproveita a mesma lógica inteligente do PDV
+  const coords = _extrairCoordsGmaps(url);
+  
+  if (coords.lat !== null && coords.lng !== null) {
+    document.getElementById("zona-lat").value = coords.lat;
+    document.getElementById("zona-lng").value = coords.lng;
+  }
+}
+
+async function adicionarZonaEspecial() {
+  const nome = document.getElementById("zona-nome").value.trim();
+  const lat = parseFloat(document.getElementById("zona-lat").value);
+  const lng = parseFloat(document.getElementById("zona-lng").value);
+  const raio = parseFloat(document.getElementById("zona-raio").value);
+  const vCliente = parseFloat(document.getElementById("zona-valor-cliente").value);
+  const vMotoboy = parseFloat(document.getElementById("zona-valor-motoboy").value);
+
+  if (!nome || isNaN(lat) || isNaN(lng) || isNaN(raio)) {
+    return alert("Preencha o nome, a localização e o raio corretamente.");
+  }
+
+  _zonasEspeciaisCache.push({
+    nome, lat, lng, raio_km: raio, valor_cliente: vCliente, valor_motoboy: vMotoboy
+  });
+
+  await _salvarZonasNoBanco();
+  
+  document.getElementById("zona-nome").value = "";
+  document.getElementById("zona-link").value = "";
+  document.getElementById("zona-lat").value = "";
+  document.getElementById("zona-lng").value = "";
+}
+
+async function removerZonaEspecial(index) {
+  if (!confirm("Remover esta zona?")) return;
+  _zonasEspeciaisCache.splice(index, 1);
+  await _salvarZonasNoBanco();
+}
+
+async function _salvarZonasNoBanco() {
+  const { error } = await supa.from("configuracoes").update({ zonas_especiais: _zonasEspeciaisCache }).gt("id", 0);
+  if (error) return alert("Erro ao salvar zonas: " + error.message);
+  renderizarZonasEspeciais();
+  _pdvToast("✅ Zonas atualizadas!");
 }
