@@ -10681,19 +10681,25 @@ async function pdvCarregarPainelCaixa() {
   }
 }
 
+function aplicarFretePDV() {
+  atualizarCarrinhoPDV();
+  if (typeof _pdvToast === "function") _pdvToast("✅ Flete aplicado al pedido");
+}
+
 let produtosCatsPDV = [];
 
 let _pdvCatFiltro = "todos";
 
 function pdvSelecionarTipo(tipo, btn) {
   const inp = document.getElementById("balcao-tipo-entrega");
-  if (inp) inp.value = tipo;
-  document
-    .querySelectorAll(".pdv-tipo-tab")
-    .forEach((b) => b.classList.remove("active"));
+  if (inp) inp.value = tipo; // Grava "delivery", "retirada" ou "balcao"
+  
+  document.querySelectorAll(".pdv-tipo-tab").forEach((b) => b.classList.remove("active"));
   if (btn) btn.classList.add("active");
+  
   const delivRow = document.getElementById("pdv-delivery-row");
   if (delivRow) delivRow.style.display = tipo === "delivery" ? "block" : "none";
+  
   atualizarCarrinhoPDV();
 }
 
@@ -12569,68 +12575,27 @@ function limparCarrinhoPDV() {
   if (carrinhoPDV.length > 0 && !confirm("¿Cancelar el pedido actual?")) return;
 
   carrinhoPDV = [];
-  window._mesaAbertaId = null;
-  window._mesaAbertaTotal = 0;
-  window._mesaAbertaPedido = null;
+  window._mesaAbertaId = null; window._mesaAbertaTotal = 0; window._mesaAbertaPedido = null;
 
-  // Campos do cliente
-  const _set = (id, val = "") => {
-    const el = document.getElementById(id);
-    if (el) el.value = val;
-  };
-  _set("balcao-cliente");
-  _set("balcao-mesa");
-  _set("balcao-telefone");
-  _set("balcao-endereco");
-  _set("balcao-geo-lat");
-  _set("balcao-geo-lng");
-  _set("balcao-frete");
-  _set("pdv-desconto-val");
-  _set("balcao-gmaps-link");
+  const _set = (id, val = "") => { const el = document.getElementById(id); if (el) el.value = val; };
+  _set("balcao-cliente"); _set("balcao-mesa"); _set("balcao-telefone");
+  _set("balcao-endereco"); _set("balcao-geo-lat"); _set("balcao-geo-lng"); // <-- LIMPA O GPS
+  _set("balcao-frete"); _set("pdv-desconto-val"); _set("balcao-gmaps-link"); // <-- LIMPA O FRETE
+  
   const _btnAbrirGmaps = document.getElementById("btn-abrir-gmaps");
-  if (_btnAbrirGmaps) {
-    _btnAbrirGmaps.style.display = "none";
-    _btnAbrirGmaps.href = "#";
-  }
-  const descTipo = document.getElementById("pdv-desconto-tipo");
-  if (descTipo) descTipo.value = "fixo";
-
-  // Reset pagamento
+  if (_btnAbrirGmaps) { _btnAbrirGmaps.style.display = "none"; _btnAbrirGmaps.href = "#"; }
+  
+  _set("pdv-desconto-tipo", "fixo");
+  
   const selPag = document.getElementById("balcao-pag");
-  if (selPag) {
-    selPag.value = "Efetivo";
-    selPag.style.display = "";
-  }
-  const boxMulti = document.getElementById("box-multi-pdv");
-  if (boxMulti) boxMulti.style.display = "none";
-  const multiPartes = document.getElementById("multi-partes-pdv");
-  if (multiPartes) multiPartes.innerHTML = "";
-  if (typeof _multiContadorPDV !== "undefined") _multiContadorPDV = 0;
+  if (selPag) { selPag.value = "Efetivo"; selPag.style.display = ""; }
+  
+  document.querySelectorAll(".pdv-tipo-tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.tipo === "balcao"));
+  _set("balcao-tipo-entrega", "balcao");
 
-  // Reset box efetivo / troco
-  _set("pdv-valor-recebido");
-  const trocoRow = document.getElementById("pdv-troco-row");
-  if (trocoRow) trocoRow.style.display = "none";
-  const efetivoBox = document.getElementById("pdv-efetivo-box");
-  if (efetivoBox) efetivoBox.style.display = "none";
-
-  // Reset delivery row
-  const delivRow = document.getElementById("pdv-delivery-row");
-  if (delivRow) delivRow.style.display = "none";
-  const freteMsg = document.getElementById("frete-msg-pdv");
-  if (freteMsg) freteMsg.innerHTML = "";
-
-  // Reset tipo entrega visual
-  document.querySelectorAll(".pdv-tipo-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tipo === "balcao");
-  });
-  const tipoHidden = document.getElementById("balcao-tipo-entrega");
-  if (tipoHidden) tipoHidden.value = "balcao";
-
-  // Atualiza UI do carrinho
   atualizarCarrinhoPDV();
   atualizarBarraMesasAtivas?.();
-  atualizarTextoBotaoPDV(); // <-- NOVA LINHA
+  atualizarTextoBotaoPDV();
 }
 
 // ── Altera quantidade de item no carrinho PDV ────────────────────
@@ -12658,7 +12623,6 @@ function atualizarCarrinhoPDV() {
   lista.innerHTML = "";
   let subtotal = 0;
 
-  // Helper: cria card de item
   const _fmtGs = (v) => "Gs " + v.toLocaleString("es-PY");
   const _fmtPeso = (g) => g >= 1000 ? (g / 1000).toFixed(3).replace(/\.?0+$/, '').replace('.', ',') + ' kg' : g + 'g';
 
@@ -12675,7 +12639,6 @@ function atualizarCarrinhoPDV() {
     return d;
   };
 
-  // 1. Itens existentes da mesa (se houver)
   const itensExistentes = window._mesaAbertaPedido && Array.isArray(window._mesaAbertaPedido.itens) ? window._mesaAbertaPedido.itens : [];
   if (itensExistentes.length > 0) {
     const sec = document.createElement("div");
@@ -12702,7 +12665,6 @@ function atualizarCarrinhoPDV() {
     });
   }
 
-  // 2. Novos itens (carrinhoPDV)
   if (carrinhoPDV.length > 0) {
     const sec2 = document.createElement("div");
     sec2.className = "pdv-sec-title pdv-sec-novo";
@@ -12731,19 +12693,14 @@ function atualizarCarrinhoPDV() {
           <button class="pdv-card-btn pdv-card-btn-edit" onclick="pdvEditarObs(${idx})">✏️ Editar</button>
           <button class="pdv-card-btn pdv-card-btn-del" onclick="removerItemPDV(${idx})">🗑️ Eliminar</button>`;
       }
-
       lista.appendChild(_criarCard(item.nome + obsHtml, sub, precoUnit, item.preco * item.qtd, acoes));
     });
   }
 
   if (itensExistentes.length === 0 && carrinhoPDV.length === 0) {
-    const vazio = document.createElement("div");
-    vazio.className = "pdv-lista-vazio";
-    vazio.textContent = "Nenhum item adicionado.";
-    lista.appendChild(vazio);
+    lista.innerHTML = '<div class="pdv-lista-vazio">Nenhum item adicionado.</div>';
   }
 
-  // 3. Cálculos de Desconto e Frete
   const descTipo = document.getElementById("pdv-desconto-tipo")?.value || "fixo";
   const descValRaw = parseFloat(document.getElementById("pdv-desconto-val")?.value || "0") || 0;
   let desconto = 0;
@@ -12754,35 +12711,24 @@ function atualizarCarrinhoPDV() {
   
   const totalComDesc = subtotal - desconto;
   const frete = parseInt(document.getElementById("balcao-frete")?.value || "0") || 0;
+  
+  // Garante que lê o tipo de entrega corretamente
   const tipoEntrega = document.getElementById("balcao-tipo-entrega")?.value || "balcao";
   const totalFinal = totalComDesc + (tipoEntrega === "delivery" ? frete : 0);
 
-  // 4. Atualiza a UI (Tela Principal)
   if (totalEl) totalEl.innerText = totalFinal.toLocaleString("es-PY");
   const subEl = document.getElementById("balcao-subtotal");
   if (subEl) subEl.innerText = subtotal.toLocaleString("es-PY");
 
-  // 5. Atualiza a UI (Dentro do Modal)
   const modalTotal = document.getElementById("pdv-pagto-total");
   if (modalTotal) modalTotal.innerText = totalFinal.toLocaleString("es-PY");
   
   const descLabel = document.getElementById("pdv-pagto-desconto-label");
   const descVal = document.getElementById("pdv-pagto-desconto-val");
   if (descLabel && descVal) {
-    if (desconto > 0) {
-      descLabel.style.display = "block";
-      descVal.innerText = desconto.toLocaleString("es-PY");
-    } else {
-      descLabel.style.display = "none";
-    }
+    if (desconto > 0) { descLabel.style.display = "block"; descVal.innerText = desconto.toLocaleString("es-PY"); }
+    else { descLabel.style.display = "none"; }
   }
-
-  // Atualiza barra inferior mobile
-  const mobileQtd = document.getElementById("pdv-mobile-qtd");
-  const mobileTot = document.getElementById("pdv-mobile-total-val");
-  const qtdTotal = carrinhoPDV.reduce((a, i) => a + i.qtd, 0);
-  if (mobileQtd) mobileQtd.textContent = qtdTotal + (qtdTotal === 1 ? " item" : " itens");
-  if (mobileTot) mobileTot.textContent = totalFinal.toLocaleString("es-PY");
 
   window._pdvTotalBaseSemTaxas = totalFinal;
   atualizarInfoPagPDV(totalFinal);
@@ -13322,34 +13268,30 @@ function _coletarMultiPagamentoPDV() {
 }
 
 async function salvarPedidoBalcao() {
-  if (carrinhoPDV.length === 0 && !window._mesaAbertaId) {
-    return alert(t("alert.carrinho_vazio") || "Carrinho vazio!");
-  }
-  if (carrinhoPDV.length === 0 && window._mesaAbertaId) {
-    return alert("Agregue al menos 1 ítem nuevo antes de lanzar.");
-  }
+  if (carrinhoPDV.length === 0 && !window._mesaAbertaId) return alert(t("alert.carrinho_vazio"));
 
   await _carregarSessaoCaixa({ propria: true });
   if (!_sessaoCaixaAtiva) {
-    const _okAbrir = confirm("⚠️ CAIXA FECHADO\n\nA venda só será liberada após a abertura do caixa.\n\nDeseja abrir o caixa agora?");
-    if (_okAbrir) abrirModalCaixa("abertura");
+    if (confirm("⚠️ CAIXA FECHADO\n\nDeseja abrir o caixa agora?")) abrirModalCaixa("abertura");
     return;
   }
 
   const _soKg = carrinhoPDV.length > 0 && carrinhoPDV.every((i) => i._isKg);
-
-  let dadosFactura = null;
-  if (document.getElementById("pdv-check-factura")?.checked) {
-    const ruc = document.getElementById("pdv-cli-ruc").value.trim();
-    const razao = document.getElementById("pdv-cli-razao").value.trim();
-    dadosFactura = (ruc || razao) ? { ruc, razao } : { ruc: "", razao: "Consumidor Final" };
-  }
+  let dadosFactura = document.getElementById("pdv-check-factura")?.checked ? { ruc: document.getElementById("pdv-cli-ruc").value.trim(), razao: document.getElementById("pdv-cli-razao").value.trim() } : null;
 
   const mesa = document.getElementById("balcao-mesa").value.trim();
   const cli = document.getElementById("balcao-cliente").value.trim() || "Cliente";
   const tel = document.getElementById("balcao-telefone").value.trim() || "";
   let pag = document.getElementById("balcao-pag").value;
   const pagFinalPDV = _resolvePagFinalPDV(pag);
+
+  // --- CORREÇÃO DO DELIVERY SAINDO COMO RETIRADA ---
+  let tipoEntregaPDV = document.getElementById("balcao-tipo-entrega")?.value || "balcao";
+  if (tipoEntregaPDV === "balcao" && document.querySelector('.pdv-tipo-tab[data-tipo="delivery"].active')) {
+      tipoEntregaPDV = "delivery";
+  } else if (tipoEntregaPDV === "balcao" && document.querySelector('.pdv-tipo-tab[data-tipo="retirada"].active')) {
+      tipoEntregaPDV = "retirada";
+  }
 
   const nomeFinal = mesa ? `MESA ${mesa} - ${cli}` : (pag === "NaNota" && _pdvClienteNotaSel ? _pdvClienteNotaSel.nome : (_soKg ? `BALCÃO KG - ${cli}` : `BALCÃO - ${cli}`));
 
@@ -13363,54 +13305,6 @@ async function salvarPedidoBalcao() {
     descontoAplicado = Math.min(descontoAplicado, subtotalBruto);
   }
 
-  let obsPagPDV = "Pagamento no Balcão";
-  if (pag === "Multipagamento") {
-    const partesPDV = _coletarMultiPagamentoPDV();
-    if (partesPDV.length === 0) return alert("Adicione ao menos 1 forma de pagamento!");
-    
-    const totalPedido = parseInt(document.getElementById("pdv-pagto-total")?.innerText.replace(/\D/g, "") || "0");
-    const somaPartes = partesPDV.reduce((a, p) => a + p.valor, 0);
-    if (Math.abs(somaPartes - totalPedido) > 1) {
-      return alert(`⚠️ El total de las formas (Gs ${somaPartes.toLocaleString("es-PY")}) no coincide con el total (Gs ${totalPedido.toLocaleString("es-PY")}).`);
-    }
-    obsPagPDV = JSON.stringify(partesPDV);
-  }
-
-  let _mensSplitInfo = null;
-  if (pag === "Mensalista") {
-    if (!_pdvMensalistaSel) return alert("Seleccione un mensualista antes de finalizar.");
-    
-    const totalPedido = parseInt(document.getElementById("pdv-pagto-total")?.innerText.replace(/\D/g, "") || "0");
-    const saldoVal = Math.round(Number(_pdvMensalistaSel.valor_restante || 0));
-
-    if (saldoVal <= 0) {
-      return alert(`⛔ Este mensalista no tiene saldo disponible.\n\nSaldo: Gs ${saldoVal.toLocaleString("es-PY")}\nTotal: Gs ${totalPedido.toLocaleString("es-PY")}`);
-    }
-
-    if (totalPedido > saldoVal) {
-      const complemento = document.getElementById("pdv-mens-metodo-resto")?.value;
-      if (!complemento) return alert("⚠️ Saldo insuficiente. Seleccione la forma de pago complementaria.");
-      
-      const valorComplemento = totalPedido - saldoVal;
-      _mensSplitInfo = { saldoDebitar: saldoVal, complemento, valorComplemento };
-
-      if (!confirm(`⚠️ Saldo insuficiente — cobrança dividida:\n\n  • Mensalista (saldo): Gs ${saldoVal.toLocaleString("es-PY")}\n  • ${complemento}: Gs ${valorComplemento.toLocaleString("es-PY")}\n\nConfirmar?`)) return;
-    }
-
-    const nomeMens = _pdvMensalistaSel.clientes?.nome || "";
-    if (_mensSplitInfo) {
-      pagFinalPDV = "Multipagamento";
-      obsPagPDV = JSON.stringify([{ metodo: "Mensalista", valor: _mensSplitInfo.saldoDebitar }, { metodo: _mensSplitInfo.complemento, valor: _mensSplitInfo.valorComplemento }]);
-    } else {
-      obsPagPDV = `Mensalista: ${nomeMens} (plano #${_pdvMensalistaSel.id})`;
-    }
-  }
-
-  if (pag === "NaNota") {
-    if (!_pdvClienteNotaSel) return alert("Seleccione el cliente para poner en la cuenta.");
-    obsPagPDV = `Na Nota: ${_pdvClienteNotaSel.nome} (${_pdvClienteNotaSel.telefone || ""})`;
-  }
-
   const novosItens = carrinhoPDV.map((i) => ({
     id: i.id || Date.now() + Math.random(), nome: i.nome, preco: i.preco, qtd: i.qtd,
     variacao: i.variacao || "", montagem: i.montagem || [], obs: i.obs || "",
@@ -13419,47 +13313,16 @@ async function salvarPedidoBalcao() {
     status_item: "pendente", lancado_em: new Date().toISOString(),
   }));
 
-  if (window._mesaAbertaId) {
-    const itensExistentes = Array.isArray(window._mesaAbertaPedido?.itens) ? window._mesaAbertaPedido.itens : [];
-    const itensMerged = [...itensExistentes, ...novosItens];
-    const novoTotal = itensMerged.reduce((acc, i) => acc + (i._isKg ? i.preco || 0 : (i.preco || 0) * (i.qtd || 1)), 0);
-
-    const { error } = await supa.from("pedidos").update({
-      itens: itensMerged, total_geral: novoTotal, subtotal: novoTotal,
-      cliente_nome: nomeFinal, cliente_telefone: tel, status: "em_preparo",
-    }).eq("id", window._mesaAbertaId);
-
-    if (error) return alert("Error al actualizar mesa: " + error.message);
-
-    await _descontarEstoqueVendaItens(novosItens);
-    _imprimirItensCozinhaMesaPDV(novosItens, `Mesa ${mesa}`, nomeFinal, window._mesaAbertaId);
-
-    window._mesaAbertaId = null; window._mesaAbertaTotal = 0; window._mesaAbertaPedido = null;
-    carrinhoPDV = [];
-    document.getElementById("balcao-cliente").value = "";
-    document.getElementById("balcao-mesa").value = "";
-    window._pdvTaxaCartaoValor = 0; window._pdvTaxaCartaoPct = 0;
-    window._pdvTaxaServicoValor = 0; window._pdvTaxaServicoPct = 0;
-    { const _chkTS = document.getElementById("pdv-check-taxa-servico"); if (_chkTS) _chkTS.checked = false; }
-    document.getElementById("balcao-telefone").value = "";
-    document.querySelector(".pdv-mesa-aviso")?.remove();
-    
-    atualizarCarrinhoPDV(); atualizarBarraMesasAtivas(); carregarMonitorMesas(); atualizarTextoBotaoPDV();
-    fecharModal('modal-pagamento-pdv');
-    return alert(`✅ ${novosItens.length} item(s) enviado(s) para a cozinha!`);
+  let obsPagPDV = "Pagamento no Balcão";
+  if (pag === "Multipagamento") {
+    const partesPDV = _coletarMultiPagamentoPDV();
+    obsPagPDV = JSON.stringify(partesPDV);
   }
 
-  const tipoEntregaPDV = document.getElementById("balcao-tipo-entrega")?.value || "balcao";
   const fretePDV = tipoEntregaPDV === "delivery" ? parseInt(document.getElementById("balcao-frete")?.value || "0") || 0 : 0;
   const enderecoPDV = tipoEntregaPDV === "delivery" ? document.getElementById("balcao-endereco")?.value.trim() || "Delivery" : mesa ? `Mesa ${mesa}` : _soKg ? "Balcão - Venda Kg" : "Balcão";
-
   const _geoLat = document.getElementById("balcao-geo-lat")?.value || null;
   const _geoLng = document.getElementById("balcao-geo-lng")?.value || null;
-
-  if (mesa && tipoEntregaPDV !== "delivery") {
-    const { data: mesaExistente } = await supa.from("pedidos").select("id, cliente_nome").eq("tipo_entrega", "balcao").neq("status", "entregue").neq("status", "cancelado").ilike("endereco_entrega", `Mesa ${mesa}`).maybeSingle();
-    if (mesaExistente) return alert(`⚠️ A Mesa ${mesa} já está aberta (pedido #${mesaExistente.id}).`);
-  }
 
   const subtotalLiquido = subtotalBruto - descontoAplicado;
   const _taxaCartaoValorPDV = window._pdvTaxaCartaoValor || 0;
@@ -13471,7 +13334,8 @@ async function salvarPedidoBalcao() {
 
   const pedido = {
     status: _soKg ? "entregue" : _todosSemCozinha(carrinhoPDV) ? "pronto_entrega" : "em_preparo",
-    tipo_entrega: tipoEntregaPDV, subtotal: subtotalBruto, desconto_pdv_valor: descontoAplicado, desconto_pdv_tipo: descontoAplicado > 0 ? descTipo : null,
+    tipo_entrega: tipoEntregaPDV, // Salvando o tipo correto!
+    subtotal: subtotalBruto, desconto_pdv_valor: descontoAplicado, desconto_pdv_tipo: descontoAplicado > 0 ? descTipo : null,
     frete_cobrado_cliente: fretePDV, total_geral: totalNovo,
     forma_pagamento: pagFinalPDV, taxa_cartao_percentual: _taxaCartaoValorPDV > 0 ? _taxaCartaoPctPDV : null, taxa_cartao_valor: _taxaCartaoValorPDV,
     taxa_servico_percentual: _taxaServicoValorPDV > 0 ? _taxaServicoPctPDV : null, taxa_servico_valor: _taxaServicoValorPDV,
@@ -13487,80 +13351,25 @@ async function salvarPedidoBalcao() {
 
   if (novoPedido?.id) await _descontarEstoqueVenda(novoPedido.id, novosItens);
 
-  if (pag === "Mensalista" && _pdvMensalistaSel) {
-    const pm = _pdvMensalistaSel;
-    const debito = _mensSplitInfo ? _mensSplitInfo.saldoDebitar : subtotalLiquido;
-    const novoSaldo = Math.round(Number(pm.valor_restante || 0) - debito);
-    await supa.from("planos_mensalistas").update({ valor_restante: novoSaldo }).eq("id", pm.id);
-    await supa.from("mensalista_entregas").insert([{ plano_id: pm.id, cliente_id: pm.clientes?.id || null, produto_nome: pm.produto_nome, quantidade: 0, observacoes: `PDV #${novoPedido?.id}`, valor_descontado: debito }]);
-    _pdvMensalistaSel.valor_restante = novoSaldo; _mensSplitInfo = null;
-  }
+  if (_gavetaDeveAbrir(pag, obsPagPDV)) _abrirGavetaDC335();
 
-  if (pag === "NaNota" && _pdvClienteNotaSel) {
-    await supa.from("pedidos").update({ cliente_telefone: _pdvClienteNotaSel.telefone || "" }).eq("id", novoPedido.id);
-  }
-
-  if (_gavetaDeveAbrir(pag, obsPagPDV)) _abrirGavetaDC335(`venda #${novoPedido?.uid_temporal ?? novoPedido?.id ?? "PDV"}`);
-
-  if (_pdvCashbackUsando && tel) {
-    const descCash = pdvGetCashbackDesconto(totalNovo);
-    if (descCash > 0) await crmUsarCashback(tel, descCash);
-    _pdvCashbackUsando = false; _pdvCashbackDisponivel = 0;
-    document.getElementById("pdv-cashback-box").style.display = "none";
-  }
-
-  if (tel) await crmGerarCashback(tel, totalNovo, novoPedido?.id || null);
-
-  if (novoPedido?.id) {
-    const itensParaImpressao = [...novosItens];
-    if (_taxaServicoValorPDV > 0) itensParaImpressao.push({ nome: `Taxa de Serviço (${_taxaServicoPctPDV}%)`, preco: _taxaServicoValorPDV, qtd: 1 });
-    if (_taxaCartaoValorPDV > 0) itensParaImpressao.push({ nome: `Taxa de Cartão (${_taxaCartaoPctPDV}%)`, preco: _taxaCartaoValorPDV, qtd: 1 });
-    
-    const dadosImpressao = {
-      id: novoPedido.uid_temporal || novoPedido.id, cliente: { nome: nomeFinal, tel: tel }, entrega: { tipo: tipoEntregaPDV, ref: pedido.endereco_entrega },
-      itens: itensParaImpressao.map((i) => ({ q: i.qtd || 1, n: i.nome, p: i.preco, t: i.variacao || "", pr: i.preparo || "", m: i.montagem || [], o: i.obs || "", peso_gramas: i.peso_gramas, _isKg: i._isKg })),
-      valores: { sub: subtotalBruto, desconto: descontoAplicado, frete: fretePDV, taxa_servico: _taxaServicoValorPDV, taxa_cartao: _taxaCartaoValorPDV, total: totalNovo },
-      pagamento: { metodo: pagFinalPDV, obs: obsPagPDV }, data: new Date().toLocaleString("pt-BR"),
-    };
-    
-    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(dadosImpressao)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    window.open(`imprimir.html?d=${base64}`, `PrintPDV_${novoPedido.id}_${Date.now()}`, "width=400,height=600");
-  }
-
+  // --- LIMPEZA TOTAL DOS CAMPOS APÓS A VENDA ---
   carrinhoPDV = [];
-  document.getElementById("balcao-cliente").value = "";
-  document.getElementById("balcao-mesa").value = "";
+  const _set = (id, val = "") => { const el = document.getElementById(id); if (el) el.value = val; };
+  _set("balcao-cliente"); _set("balcao-mesa"); _set("balcao-telefone");
+  _set("balcao-endereco"); _set("balcao-geo-lat"); _set("balcao-geo-lng"); _set("balcao-frete"); // <- Limpa localização
+  _set("balcao-gmaps-link"); _set("pdv-desconto-val");
+  
   window._pdvTaxaCartaoValor = 0; window._pdvTaxaCartaoPct = 0; window._pdvTaxaServicoValor = 0; window._pdvTaxaServicoPct = 0;
-  { const _chkTS = document.getElementById("pdv-check-taxa-servico"); if (_chkTS) _chkTS.checked = false; }
-  { const _pctTS = document.getElementById("pdv-taxa-servico-pct"); if (_pctTS) _pctTS.style.display = "none"; }
-  document.getElementById("balcao-telefone").value = "";
-  { const _tipoSel = document.getElementById("balcao-tipo-entrega"); if (_tipoSel) _tipoSel.value = "balcao"; }
+  const _chkTS = document.getElementById("pdv-check-taxa-servico"); if (_chkTS) _chkTS.checked = false;
+  
+  _set("balcao-tipo-entrega", "balcao");
   document.querySelectorAll(".pdv-tipo-tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.tipo === "balcao"));
+  const delivRow = document.getElementById("pdv-delivery-row"); if (delivRow) delivRow.style.display = "none";
+  const _btnAbrirGmaps = document.getElementById("btn-abrir-gmaps"); if (_btnAbrirGmaps) _btnAbrirGmaps.style.display = "none";
   
-  const _descValEl = document.getElementById("pdv-desconto-val"); if (_descValEl) _descValEl.value = "";
-  const _descTipoEl = document.getElementById("pdv-desconto-tipo"); if (_descTipoEl) _descTipoEl.value = "fixo";
-  const _multiPartesPDV = document.getElementById("multi-partes-pdv"); if (_multiPartesPDV) _multiPartesPDV.innerHTML = "";
-  
-  _multiContadorPDV = 0;
-  document.getElementById("balcao-pag").value = "Efetivo";
-  document.getElementById("balcao-pag").style.display = "";
-  const _boxMulti = document.getElementById("box-multi-pdv"); if (_boxMulti) _boxMulti.style.display = "none";
-  
-  _pdvMensalistaSel = null;
-  const _boxMens = document.getElementById("box-mensalista-pdv"); if (_boxMens) _boxMens.style.display = "none";
-  const _mensSel = document.getElementById("pdv-mens-selecionado"); if (_mensSel) _mensSel.style.display = "none";
-  
-  _pdvClienteNotaSel = null;
-  const _boxNota = document.getElementById("box-nanota-pdv"); if (_boxNota) _boxNota.style.display = "none";
-  const _notaSel = document.getElementById("pdv-nota-selecionado"); if (_notaSel) _notaSel.style.display = "none";
-  
-  const _recEl = document.getElementById("pdv-valor-recebido"); const _trEl = document.getElementById("pdv-troco-row"); const _efEl = document.getElementById("pdv-efetivo-box");
-  if (_recEl) _recEl.value = ""; if (_trEl) _trEl.style.display = "none"; if (_efEl) _efEl.style.display = "none";
-  
-  atualizarCarrinhoPDV(); atualizarBarraMesasAtivas(); carregarMonitorMesas(); atualizarTextoBotaoPDV();
-  fecharModal('modal-pagamento-pdv');
-
-  _pdvToast(_soKg ? "✅ Venda registrada!" : _todosBebidas(novosItens) ? "✅ Só bebidas — direto ao balcão." : "✅ Enviado para a Cozinha!");
+  atualizarCarrinhoPDV(); fecharModal('modal-pagamento-pdv');
+  _pdvToast("✅ Venda registrada e campos limpos!");
 }
 
 // ── Imprime para a cozinha apenas os itens novos de uma mesa ──────────
@@ -17755,45 +17564,29 @@ async function salvarEdicaoPedidoRelatorio() {
   const pedidoId = modal.dataset.pedidoId;
   if (!pedidoId) return;
 
-  // Captura a nova forma de pagamento
   const novaFormaPagamento = document.getElementById('edit-pedido-forma-pagamento').value;
 
-  // Coleta novos pesos (apenas para itens kg)
   const itensContainer = document.getElementById('edit-pedido-itens');
   const inputsPeso = itensContainer.querySelectorAll('input[id^="edit-peso-"]');
   const novosPesos = {};
   inputsPeso.forEach(inp => {
     const idx = inp.id.replace('edit-peso-', '');
     const val = parseInt(inp.value);
-    if (!isNaN(val) && val >= 0) {
-      novosPesos[idx] = val;
-    }
+    if (!isNaN(val) && val >= 0) novosPesos[idx] = val;
   });
 
-  // Busca pedido atual para recalcular o total com base nos itens
-  const { data: pedido, error: errFetch } = await supa
-    .from('pedidos')
-    .select('itens, subtotal, total_geral, desconto_pdv_valor, frete_cobrado_cliente, cupom_codigo')
-    .eq('id', pedidoId)
-    .single();
-
-  if (errFetch || !pedido) {
-    alert('Error al buscar pedido para actualización.');
-    return;
-  }
+  const { data: pedido, error: errFetch } = await supa.from('pedidos').select('itens, subtotal, desconto_pdv_valor, frete_cobrado_cliente').eq('id', pedidoId).single();
+  if (errFetch || !pedido) return alert('Error al buscar pedido.');
 
   const itens = pedido.itens || [];
   let subtotal = 0;
 
-  // Atualiza pesos e recalcula o subtotal rigorosamente com base nos itens
   const itensAtualizados = itens.map((item, idx) => {
     const isKg = item._isKg || item.peso_gramas > 0;
     if (isKg && novosPesos.hasOwnProperty(idx)) {
       const novoPeso = novosPesos[idx];
       item.peso_gramas = novoPeso;
-      if (item.preco_kg) {
-        item.preco = Math.round((item.preco_kg * novoPeso) / 1000);
-      }
+      if (item.preco_kg) item.preco = Math.round((item.preco_kg * novoPeso) / 1000);
     }
     const preco = item.preco || item.p || 0;
     const qtd = item.qtd || item.q || 1;
@@ -17803,27 +17596,20 @@ async function salvarEdicaoPedidoRelatorio() {
 
   const desconto = pedido.desconto_pdv_valor || 0;
   const frete = pedido.frete_cobrado_cliente || 0;
-  
-  // Total calculado estritamente pelo sistema (evita fraudes manuais)
   const totalFinal = subtotal - desconto + frete;
 
-  // Prepara os dados para o banco (Note que NÃO estamos usando o valor digitado pelo usuário, e sim o calculado)
-  const updateData = {
-    forma_pagamento: novaFormaPagamento,
-    itens: itensAtualizados,
-    subtotal: subtotal,
-    total_geral: totalFinal,
-  };
-
+  // ATUALIZA APENAS, NUNCA INSERE
   const { error: errUpdate } = await supa
     .from('pedidos')
-    .update(updateData)
+    .update({
+      forma_pagamento: novaFormaPagamento,
+      itens: itensAtualizados,
+      subtotal: subtotal,
+      total_geral: totalFinal
+    })
     .eq('id', pedidoId);
 
-  if (errUpdate) {
-    alert('Error al guardar: ' + errUpdate.message);
-    return;
-  }
+  if (errUpdate) return alert('Error al guardar: ' + errUpdate.message);
 
   alert('✅ ¡Pedido actualizado con éxito!');
   fecharModal('modal-editar-pedido');
