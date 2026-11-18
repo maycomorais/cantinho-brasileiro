@@ -573,6 +573,10 @@ const uploadImageToImgbb = uploadImageToSupabase;
 // 2. CONTROLE DE ABAS
 // =========================================
 function showTab(tabId, event) {
+  if ((tabId === "assinatura" || tabId === "adminmaster") && perfilUsuario !== "adminMaster") {
+    alert("Acesso restrito apenas para o Admin Master.");
+    return;
+  }
   console.log("Tentando abrir aba:", tabId);
   console.log("Event:", event);
 
@@ -829,6 +833,16 @@ function _podeCancelarDireto() {
 }
 
 function _aplicarVisibilidadeAbas() {
+  // adminMaster nunca sofre restrições — ele define as regras
+  if (perfilUsuario === "adminMaster") return;
+
+  // TRAVA DE SEGURANÇA PARA AS ABAS EXCLUSIVAS
+  const menuAssin = document.getElementById("menu-assinatura");
+  if (menuAssin) menuAssin.style.display = "none";
+  
+  const menuAM = document.getElementById("menu-adminmaster");
+  if (menuAM) menuAM.style.display = "none";
+
   const mapa = {
     "menu-pedidos": "pedidos",
     "menu-cozinha": "cozinha",
@@ -12904,35 +12918,51 @@ let _pdvMensalistas = []; // planos ativos carregados
 let _pdvMensalistaSel = null; // plano selecionado
 
 async function pdvCarregarMensalistas() {
-  if (_pdvMensalistas.length > 0) {
-    pdvRenderMensalistas(_pdvMensalistas);
+  if (_pdvMensalistas.length > 0) { 
+    pdvRenderMensalistas(_pdvMensalistas); 
+    return; 
+  }
+  
+  // 1. Busca os planos (sem a trava de ativo = true)
+  const { data: planos, error } = await supa
+    .from('planos_mensalistas')
+    .select('id, cliente_id, produto_nome, valor_plano, valor_restante, excluido, ativo')
+    .order('id');
+
+  if (error) {
+    console.error('Erro ao buscar planos:', error);
+    _pdvMensalistas = [];
+    pdvRenderMensalistas([]);
     return;
   }
-  const { data, error } = await supa
-    .from("planos_mensalistas")
-    .select(
-      "id, produto_nome, valor_plano, valor_restante, excluido, clientes(id, nome, telefone)",
-    )
-    .eq("ativo", true)
-    .order("id");
 
-  // Fallback: se a coluna excluido não existir no banco
-  let lista = data || [];
-  if (error) {
-    console.warn(
-      "[PDV Mensalistas] Fallback sem filtro excluido:",
-      error.message,
-    );
-    const r2 = await supa
-      .from("planos_mensalistas")
-      .select(
-        "id, produto_nome, valor_plano, valor_restante, clientes(id, nome, telefone)",
-      )
-      .eq("ativo", true)
-      .order("id");
-    lista = r2.data || [];
+  // Filtra: não excluídos E (ativos OU com saldo)
+  const planosFiltrados = (planos || []).filter(p => 
+    p.excluido !== true && 
+    (p.ativo === true || Number(p.valor_restante) > 0)
+  );
+  
+  // 2. Junta os IDs dos clientes para buscar os nomes
+  const clientIds = [...new Set(planosFiltrados.map(p => p.cliente_id).filter(Boolean))];
+  let clientesMap = {};
+  
+  if (clientIds.length > 0) {
+    const { data: clientes, error: errCli } = await supa
+      .from('clientes')
+      .select('id, nome, telefone')
+      .in('id', clientIds);
+    
+    if (!errCli && clientes) {
+      clientes.forEach(c => { clientesMap[c.id] = c; });
+    }
   }
-  _pdvMensalistas = lista.filter((p) => p.excluido !== true);
+
+  // 3. Monta a lista final
+  _pdvMensalistas = planosFiltrados.map(p => ({
+    ...p,
+    clientes: clientesMap[p.cliente_id] || null
+  }));
+
   pdvRenderMensalistas(_pdvMensalistas);
 }
 
