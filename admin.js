@@ -13292,7 +13292,6 @@ async function salvarPedidoBalcao() {
   let pag = document.getElementById("balcao-pag").value;
   const pagFinalPDV = _resolvePagFinalPDV(pag);
 
-  // --- CORREÇÃO DO DELIVERY SAINDO COMO RETIRADA ---
   let tipoEntregaPDV = document.getElementById("balcao-tipo-entrega")?.value || "balcao";
   if (tipoEntregaPDV === "balcao" && document.querySelector('.pdv-tipo-tab[data-tipo="delivery"].active')) {
       tipoEntregaPDV = "delivery";
@@ -13339,9 +13338,17 @@ async function salvarPedidoBalcao() {
   const totalNovo = subtotalLiquido + fretePDV + _taxaCartaoValorPDV + _taxaServicoValorPDV;
   const _agora = new Date().toISOString();
 
+  // 🔥 CORREÇÃO DO BLOQUEIO DE POP-UP 🔥
+  // Abre a janela de impressão imediatamente no clique para o navegador não bloquear.
+  // O 'about:blank' abre uma tela vazia que será preenchida depois.
+  let printWindow = null;
+  if (!window._mesaAbertaId) {
+    printWindow = window.open("about:blank", `PrintPDV_${Date.now()}`, "width=400,height=600");
+  }
+
   const pedido = {
     status: _soKg ? "entregue" : _todosSemCozinha(carrinhoPDV) ? "pronto_entrega" : "em_preparo",
-    tipo_entrega: tipoEntregaPDV, // Salvando o tipo correto!
+    tipo_entrega: tipoEntregaPDV,
     subtotal: subtotalBruto, desconto_pdv_valor: descontoAplicado, desconto_pdv_tipo: descontoAplicado > 0 ? descTipo : null,
     frete_cobrado_cliente: fretePDV, total_geral: totalNovo,
     forma_pagamento: pagFinalPDV, taxa_cartao_percentual: _taxaCartaoValorPDV > 0 ? _taxaCartaoPctPDV : null, taxa_cartao_valor: _taxaCartaoValorPDV,
@@ -13354,17 +13361,43 @@ async function salvarPedidoBalcao() {
   };
 
   const { data: novoPedido, error } = await supa.from("pedidos").insert([pedido]).select("id, uid_temporal").single();
-  if (error) return alert("Error: " + error.message);
+  
+  if (error) {
+    if (printWindow) printWindow.close(); // Fecha a tela em branco se der erro no banco
+    return alert("Error: " + error.message);
+  }
 
   if (novoPedido?.id) await _descontarEstoqueVenda(novoPedido.id, novosItens);
 
   if (_gavetaDeveAbrir(pag, obsPagPDV)) _abrirGavetaDC335();
 
-  // --- LIMPEZA TOTAL DOS CAMPOS APÓS A VENDA ---
+  if (novoPedido?.id && printWindow) {
+    const itensParaImpressao = [...novosItens];
+    if (_taxaServicoValorPDV > 0) itensParaImpressao.push({ nome: `Taxa de Serviço (${_taxaServicoPctPDV}%)`, preco: _taxaServicoValorPDV, qtd: 1 });
+    if (_taxaCartaoValorPDV > 0) itensParaImpressao.push({ nome: `Taxa de Cartão (${_taxaCartaoPctPDV}%)`, preco: _taxaCartaoValorPDV, qtd: 1 });
+    
+    const dadosImpressao = {
+      id: novoPedido.uid_temporal || novoPedido.id,
+      cliente: { nome: nomeFinal, tel: tel },
+      entrega: { tipo: tipoEntregaPDV, ref: pedido.endereco_entrega },
+      itens: itensParaImpressao.map((i) => ({
+        q: i.qtd || 1, n: i.nome, p: i.preco, t: i.variacao || "", pr: i.preparo || "", m: i.montagem || [], o: i.obs || "",
+        peso_gramas: i.peso_gramas, _isKg: i._isKg,
+      })),
+      valores: { sub: subtotalBruto, desconto: descontoAplicado, frete: fretePDV, taxa_servico: _taxaServicoValorPDV, taxa_cartao: _taxaCartaoValorPDV, total: totalNovo },
+      pagamento: { metodo: pagFinalPDV, obs: obsPagPDV }, data: new Date().toLocaleString("pt-BR"),
+    };
+    
+    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(dadosImpressao)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    
+    // 🔥 REDIRECIONA A JANELA EM BRANCO PARA A IMPRESSÃO
+    printWindow.location.href = `imprimir.html?d=${base64}`;
+  }
+
   carrinhoPDV = [];
   const _set = (id, val = "") => { const el = document.getElementById(id); if (el) el.value = val; };
   _set("balcao-cliente"); _set("balcao-mesa"); _set("balcao-telefone");
-  _set("balcao-endereco"); _set("balcao-geo-lat"); _set("balcao-geo-lng"); _set("balcao-frete"); // <- Limpa localização
+  _set("balcao-endereco"); _set("balcao-geo-lat"); _set("balcao-geo-lng"); _set("balcao-frete");
   _set("balcao-gmaps-link"); _set("pdv-desconto-val");
   
   window._pdvTaxaCartaoValor = 0; window._pdvTaxaCartaoPct = 0; window._pdvTaxaServicoValor = 0; window._pdvTaxaServicoPct = 0;
@@ -13376,7 +13409,7 @@ async function salvarPedidoBalcao() {
   const _btnAbrirGmaps = document.getElementById("btn-abrir-gmaps"); if (_btnAbrirGmaps) _btnAbrirGmaps.style.display = "none";
   
   atualizarCarrinhoPDV(); fecharModal('modal-pagamento-pdv');
-  _pdvToast("✅ Venda registrada e campos limpos!");
+  _pdvToast("✅ Venda registrada!");
 }
 
 // ── Imprime para a cozinha apenas os itens novos de uma mesa ──────────
