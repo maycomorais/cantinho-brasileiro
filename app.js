@@ -3665,17 +3665,23 @@ function _executarGetPosition(btn, msg, boxErro) {
         lat: position.coords.latitude,
         lng: position.coords.longitude,
       };
-      const dist = calcularDistancia(
+      
+      // MUDANÇA 1: Trocado de const para let
+      let dist = calcularDistancia(
         COORD_LOJA.lat,
         COORD_LOJA.lng,
         localCliente.lat,
         localCliente.lng,
       );
 
+      // MUDANÇA 2: Adicionada a Margem de Segurança (10% + 150m)
+      dist = (dist * 1.10) + 0.15;
+
       // ── VERIFICAÇÃO DE ZONAS ESPECIAIS (Prioridade Máxima) ─────────────
       const zona = (window.ZONAS_ESPECIAIS || []).find((z) => {
         const distZona = calcularDistancia(z.lat, z.lng, localCliente.lat, localCliente.lng);
-        return distZona <= z.raio_km;
+        // MUDANÇA 3: Number() para garantir
+        return distZona <= Number(z.raio_km);
       });
 
       if (zona) {

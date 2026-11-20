@@ -13429,7 +13429,10 @@ async function salvarPedidoBalcao() {
     obsPagPDV = JSON.stringify(partesPDV);
   }
 
+  // ── AQUI ESTÁ A CORREÇÃO: LENDO DO CAMPO OCULTO ──
   const fretePDV = tipoEntregaPDV === "delivery" ? parseInt(document.getElementById("balcao-frete")?.value || "0") || 0 : 0;
+  const freteMotoboyPDV = tipoEntregaPDV === "delivery" ? parseInt(document.getElementById("balcao-frete-motoboy")?.value || "0") || 0 : 0;
+
   const enderecoPDV = tipoEntregaPDV === "delivery" ? document.getElementById("balcao-endereco")?.value.trim() || "Delivery" : mesa ? `Mesa ${mesa}` : _soKg ? "Balcão - Venda Kg" : "Balcão";
   const _geoLat = document.getElementById("balcao-geo-lat")?.value || null;
   const _geoLng = document.getElementById("balcao-geo-lng")?.value || null;
@@ -13442,9 +13445,6 @@ async function salvarPedidoBalcao() {
   const totalNovo = subtotalLiquido + fretePDV + _taxaCartaoValorPDV + _taxaServicoValorPDV;
   const _agora = new Date().toISOString();
 
-  // 🔥 CORREÇÃO DO BLOQUEIO DE POP-UP 🔥
-  // Abre a janela de impressão imediatamente no clique para o navegador não bloquear.
-  // O 'about:blank' abre uma tela vazia que será preenchida depois.
   let printWindow = null;
   if (!window._mesaAbertaId) {
     printWindow = window.open("about:blank", `PrintPDV_${Date.now()}`, "width=400,height=600");
@@ -13454,7 +13454,8 @@ async function salvarPedidoBalcao() {
     status: _soKg ? "entregue" : _todosSemCozinha(carrinhoPDV) ? "pronto_entrega" : "em_preparo",
     tipo_entrega: tipoEntregaPDV,
     subtotal: subtotalBruto, desconto_pdv_valor: descontoAplicado, desconto_pdv_tipo: descontoAplicado > 0 ? descTipo : null,
-    frete_cobrado_cliente: fretePDV, total_geral: totalNovo,
+    frete_cobrado_cliente: fretePDV, frete_motoboy: freteMotoboyPDV, // <-- SALVANDO O VALOR CORRETO NO BANCO
+    total_geral: totalNovo,
     forma_pagamento: pagFinalPDV, taxa_cartao_percentual: _taxaCartaoValorPDV > 0 ? _taxaCartaoPctPDV : null, taxa_cartao_valor: _taxaCartaoValorPDV,
     taxa_servico_percentual: _taxaServicoValorPDV > 0 ? _taxaServicoPctPDV : null, taxa_servico_valor: _taxaServicoValorPDV,
     itens: novosItens, endereco_entrega: enderecoPDV, cliente_nome: nomeFinal, cliente_telefone: tel, obs_pagamento: obsPagPDV,
@@ -13467,7 +13468,7 @@ async function salvarPedidoBalcao() {
   const { data: novoPedido, error } = await supa.from("pedidos").insert([pedido]).select("id, uid_temporal").single();
   
   if (error) {
-    if (printWindow) printWindow.close(); // Fecha a tela em branco se der erro no banco
+    if (printWindow) printWindow.close();
     return alert("Error: " + error.message);
   }
 
@@ -13493,15 +13494,14 @@ async function salvarPedidoBalcao() {
     };
     
     const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(dadosImpressao)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    
-    // 🔥 REDIRECIONA A JANELA EM BRANCO PARA A IMPRESSÃO
     printWindow.location.href = `imprimir.html?d=${base64}`;
   }
 
   carrinhoPDV = [];
   const _set = (id, val = "") => { const el = document.getElementById(id); if (el) el.value = val; };
   _set("balcao-cliente"); _set("balcao-mesa"); _set("balcao-telefone");
-  _set("balcao-endereco"); _set("balcao-geo-lat"); _set("balcao-geo-lng"); _set("balcao-frete");
+  _set("balcao-endereco"); _set("balcao-geo-lat"); _set("balcao-geo-lng"); 
+  _set("balcao-frete"); _set("balcao-frete-motoboy"); // <-- LIMPANDO OS DOIS CAMPOS DE FRETE
   _set("balcao-gmaps-link"); _set("pdv-desconto-val");
   
   window._pdvTaxaCartaoValor = 0; window._pdvTaxaCartaoPct = 0; window._pdvTaxaServicoValor = 0; window._pdvTaxaServicoPct = 0;
@@ -16779,140 +16779,114 @@ async function calcularFretePDV() {
   const btn = document.getElementById("btn-gps-pdv");
   const msg = document.getElementById("frete-msg-pdv");
   const freteInput = document.getElementById("balcao-frete");
+  const freteMotoboyInput = document.getElementById("balcao-frete-motoboy");
 
   btn.disabled = true;
   btn.innerHTML = "⏳";
   msg.innerHTML = '<span style="color:#888">Localizando...</span>';
 
-  // ── Tenta extrair coordenadas: primeiro do campo Google Maps Link,
-  //    depois do campo endereço (retro-compatibilidade)
-  const gmapsLinkVal = (
-    document.getElementById("balcao-gmaps-link")?.value || ""
-  ).trim();
-  const endVal = (
-    document.getElementById("balcao-endereco")?.value || ""
-  ).trim();
+  const gmapsLinkVal = (document.getElementById("balcao-gmaps-link")?.value || "").trim();
+  const endVal = (document.getElementById("balcao-endereco")?.value || "").trim();
 
   let { lat, lng } = _extrairCoordsGmaps(gmapsLinkVal);
   if (lat === null) {
     const fromEnd = _extrairCoordsGmaps(endVal);
-    lat = fromEnd.lat;
-    lng = fromEnd.lng;
+    lat = fromEnd.lat; lng = fromEnd.lng;
   }
 
   if (lat === null || lng === null) {
     if (!navigator.geolocation) {
-      msg.innerHTML = '<span style="color:#e74c3c">Cole um link do Google Maps no campo acima ou use um celular com GPS</span>';
-      btn.disabled = false;
-      btn.innerHTML = "📍 Calcular";
-      return;
+      msg.innerHTML = '<span style="color:#e74c3c">Cole um link do Google Maps ou use um celular com GPS</span>';
+      btn.disabled = false; btn.innerHTML = "📍 Calcular"; return;
     }
     let position;
     try {
       position = await new Promise((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-        }),
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
       );
     } catch {
-      msg.innerHTML = '<span style="color:#e74c3c">Cole um link do Google Maps no campo acima, ou permita o GPS</span>';
-      btn.disabled = false;
-      btn.innerHTML = "📍 Calcular";
-      return;
+      msg.innerHTML = '<span style="color:#e74c3c">Cole um link do Google Maps, ou permita o GPS</span>';
+      btn.disabled = false; btn.innerHTML = "📍 Calcular"; return;
     }
-    lat = position.coords.latitude;
-    lng = position.coords.longitude;
+    lat = position.coords.latitude; lng = position.coords.longitude;
   }
 
-  // ── Salva coords no campo oculto para usar no insert ─────────────────
   document.getElementById("balcao-geo-lat").value = lat;
   document.getElementById("balcao-geo-lng").value = lng;
 
-  msg.innerHTML = '<span style="color:#888">⏳ Calculando rota real...</span>';
+  msg.innerHTML = '<span style="color:#888">⏳ Calculando rota...</span>';
   
-  // ── TENTA CALCULAR A ROTA REAL PELA API OSRM ────────────────────────
   let dist = await obterDistanciaPelaRota(lat, lng);
   let usouRota = true;
   
-  // Se a API OSRM falhar (sem internet ou limite atingido), faz fallback para linha reta
   if (dist === null) {
-    const R = 6371,
-      toRad = (x) => (x * Math.PI) / 180;
+    const R = 6371, toRad = (x) => (x * Math.PI) / 180;
     const dLat = toRad(lat - COORD_LOJA.lat);
     const dLon = toRad(lng - COORD_LOJA.lng);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(COORD_LOJA.lat)) *
-        Math.cos(toRad(lat)) *
-        Math.sin(dLon / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(COORD_LOJA.lat)) * Math.cos(toRad(lat)) * Math.sin(dLon / 2) ** 2;
     dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     usouRota = false;
   }
 
+  // 🔥 MARGEM DE SEGURANÇA (Protege o motoboy) 🔥
+  // Adiciona 10% + 150 metros à distância calculada. 
+  // Isso evita que diferenças de GPS/Maps deixem o motoboy no prejuízo nas faixas.
+  const distOriginal = dist;
+  dist = (dist * 1.10) + 0.15; 
+  
   const nota = usouRota ? "🛣️ rota" : "📏 linha reta*";
+  const avisoMargem = ` <span style="font-size:0.65rem;color:#94a3b8;font-weight:normal">(c/ margem de segurança)</span>`;
 
   // ── VERIFICAÇÃO DE ZONAS ESPECIAIS ───────────────────────────────────
-  // Para as Zonas Especiais, o correto é usar o raio (linha reta) em relação ao centro.
-  // Exemplo: A loja fica no meio do centro. Se o cliente está a 1km em linha reta, 
-  // ele entra na zona, independentemente de a rua dar voltas.
   const zona = (_zonasEspeciaisCache || []).find((z) => {
-    const distZona = calcularDistancia(z.lat, z.lng, lat, lng); // Usa Haversine
-    return distZona <= z.raio_km;
+    const distZona = calcularDistancia(z.lat, z.lng, lat, lng);
+    return distZona <= Number(z.raio_km);
   });
 
   if (zona) {
     freteInput.value = zona.valor_cliente;
-    msg.innerHTML = `<span style="color:#27ae60">✅ ZONA ESPECIAL: ${zona.nome} (${dist.toFixed(1)}km ${nota}) → Gs ${zona.valor_cliente.toLocaleString("es-PY")}</span>`;
-    btn.disabled = false;
-    btn.innerHTML = "📍 Calcular";
+    freteMotoboyInput.value = zona.valor_motoboy;
+    msg.innerHTML = `<span style="color:#27ae60">✅ ZONA ESPECIAL: ${zona.nome} (${distOriginal.toFixed(1)}km) → Cliente: Gs ${zona.valor_cliente.toLocaleString("es-PY")}</span>`;
+    btn.disabled = false; btn.innerHTML = "📍 Calcular";
     atualizarCarrinhoPDV();
     return;
   }
 
-  // ── SE NÃO ESTIVER EM ZONA, SEGUE A TABELA NORMAL POR KM ─────────────
-  const LIMITES_KM = [
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-  ];
+  // ── TABELA NORMAL ────────────────────────────────────────────────────
+  const LIMITES_KM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
   let freteIndex = -1;
   for (let i = 0; i < LIMITES_KM.length; i++) {
-    if (dist <= LIMITES_KM[i]) {
-      freteIndex = i;
-      break;
-    }
+    if (dist <= LIMITES_KM[i]) { freteIndex = i; break; }
   }
 
-  if (
-    freteIndex === -1 ||
-    (TABELA_FRETE_ADMIN && TABELA_FRETE_ADMIN[freteIndex]?.acombinar)
-  ) {
-    msg.innerHTML = `<span style="color:#e67e22">⚠️ ${dist.toFixed(1)}km (${nota}) — combinar frete</span>`;
+  if (freteIndex === -1 || (TABELA_FRETE_ADMIN && TABELA_FRETE_ADMIN[freteIndex]?.acombinar)) {
+    msg.innerHTML = `<span style="color:#e67e22">⚠️ ${dist.toFixed(1)}km (${nota}) — combinar frete ${avisoMargem}</span>`;
     freteInput.value = "";
-    btn.disabled = false;
-    btn.innerHTML = "📍 Calcular";
+    freteMotoboyInput.value = "0";
+    btn.disabled = false; btn.innerHTML = "📍 Calcular";
     atualizarCarrinhoPDV();
     return;
   }
 
   let frete = 0;
+  let freteMotoboy = 0;
+
   if (TABELA_FRETE_ADMIN?.[freteIndex]) {
     frete = TABELA_FRETE_ADMIN[freteIndex].loja || 0;
+    freteMotoboy = TABELA_FRETE_ADMIN[freteIndex].motoboy || 0;
   } else {
-    if (dist <= 3.3) frete = 6000;
-    else if (dist <= 4.2) frete = 12000;
-    else if (dist <= 5.2) frete = 18000;
-    else if (dist <= 6.2) frete = 24000;
-    else frete = 24000 + Math.ceil(dist - 6.2) * 3000;
+    if (dist <= 3.3) { frete = 6000; freteMotoboy = 6000; }
+    else if (dist <= 4.2) { frete = 12000; freteMotoboy = 12000; }
+    else if (dist <= 5.2) { frete = 18000; freteMotoboy = 18000; }
+    else if (dist <= 6.2) { frete = 24000; freteMotoboy = 24000; }
+    else { frete = 24000 + Math.ceil(dist - 6.2) * 3000; freteMotoboy = frete; }
   }
 
   freteInput.value = frete;
-  const aviso = usouRota ? "" : ' <em style="color:#e67e22">(estimativa por falha na rota)</em>';
-  
-  // O motoboy e o operador agora vão ver claramente se foi calculado por rota ou linha reta.
-  msg.innerHTML = `<span style="color:#27ae60">✅ ${dist.toFixed(1)}km ${nota} → Gs ${frete.toLocaleString("es-PY")}</span>${aviso}`;
-  
-  btn.disabled = false;
-  btn.innerHTML = "📍 Calcular";
+  freteMotoboyInput.value = freteMotoboy;
+  const aviso = usouRota ? "" : ' <em style="color:#e67e22">(estimativa)</em>';
+  msg.innerHTML = `<span style="color:#27ae60">✅ ${dist.toFixed(1)}km ${nota} → Gs ${frete.toLocaleString("es-PY")}${aviso}${avisoMargem}</span>`;
+  btn.disabled = false; btn.innerHTML = "📍 Calcular";
   atualizarCarrinhoPDV();
 }
 
